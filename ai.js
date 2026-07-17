@@ -12,7 +12,8 @@
   const PROVIDERS = {
     gemini: {
       label: "Google Gemini (free)",
-      defaultModel: "gemini-2.0-flash",
+      defaultModel: "gemini-1.5-flash",
+      models: ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash"],
       getUrl: "https://aistudio.google.com/app/apikey",
       async call(cfg, system, history) {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model || this.defaultModel}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
@@ -30,6 +31,7 @@
     groq: {
       label: "Groq (free, very fast)",
       defaultModel: "llama-3.3-70b-versatile",
+      models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b"],
       getUrl: "https://console.groq.com/keys",
       async call(cfg, system, history) {
         return openaiStyle("https://api.groq.com/openai/v1/chat/completions", cfg, system, history);
@@ -38,6 +40,7 @@
     openrouter: {
       label: "OpenRouter (free models)",
       defaultModel: "meta-llama/llama-3.3-70b-instruct:free",
+      models: ["meta-llama/llama-3.3-70b-instruct:free", "google/gemini-2.0-flash-exp:free", "deepseek/deepseek-chat-v3-0324:free"],
       getUrl: "https://openrouter.ai/keys",
       async call(cfg, system, history) {
         return openaiStyle("https://openrouter.ai/api/v1/chat/completions", cfg, system, history);
@@ -99,15 +102,18 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
     renderPanel(container, cfg);
   }
 
-  function renderSetup(container) {
+  function renderSetup(container, prefill = {}) {
+    const cur = { ...getCfg(), ...prefill };
     const opts = Object.entries(PROVIDERS).map(([k, v]) =>
-      `<option value="${k}">${v.label}</option>`).join("");
+      `<option value="${k}" ${k===cur.provider?"selected":""}>${v.label}</option>`).join("");
+    const modelOpts = (prov, sel) => (PROVIDERS[prov].models || [PROVIDERS[prov].defaultModel])
+      .map(m => `<option value="${m}" ${m===sel?"selected":""}>${m}</option>`).join("");
     container.innerHTML = `
       <div class="card" style="border-color:rgba(108,140,255,.4)">
         <h3>✨ Turn on the real AI Coach (free)</h3>
         <div class="hint" style="font-size:13px;line-height:1.6;margin-bottom:14px">
-          Paste a free API key below. It's saved <b>only in this browser</b> — never uploaded, never committed to GitHub.
-          Recommended: <b>Google Gemini</b> — free, generous limits, no card needed.
+          Paste a free API key below. It's saved <b>only in this browser</b> — never uploaded, never committed to GitHub.<br>
+          Getting a <b>quota / limit: 0</b> error on Gemini? Try model <b>gemini-1.5-flash</b>, or switch provider to <b>Groq</b> (most reliable free tier).
         </div>
         <div class="form-grid">
           <div class="field">
@@ -115,37 +121,49 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
             <select id="ai-provider">${opts}</select>
           </div>
           <div class="field">
+            <label>Model</label>
+            <select id="ai-model">${modelOpts(cur.provider || "gemini", cur.model)}</select>
+          </div>
+          <div class="field field-full">
             <label>API Key</label>
-            <input type="password" id="ai-key" placeholder="paste your key here" autocomplete="off" />
+            <input type="password" id="ai-key" placeholder="paste your key here" autocomplete="off" value="${cur.apiKey ? escapeHtml(cur.apiKey) : ""}" />
           </div>
           <div class="field field-full">
             <a id="ai-getkey" href="#" target="_blank" rel="noopener" class="hint" style="color:var(--accent)">→ Get a free key</a>
           </div>
           <div class="form-actions">
             <button class="btn" id="ai-save">Save & activate</button>
+            ${hasKey() ? `<button class="btn secondary" id="ai-cancel">Cancel</button>` : ""}
           </div>
         </div>
       </div>`;
     const prov = $("#ai-provider", container);
+    const modelSel = $("#ai-model", container);
     const link = $("#ai-getkey", container);
-    const syncLink = () => { link.href = PROVIDERS[prov.value].getUrl;
-      link.textContent = "→ Get a free " + PROVIDERS[prov.value].label.split(" ")[0] + " key"; };
-    prov.onchange = syncLink; syncLink();
+    const syncProv = () => {
+      modelSel.innerHTML = modelOpts(prov.value, PROVIDERS[prov.value].defaultModel);
+      link.href = PROVIDERS[prov.value].getUrl;
+      link.textContent = "→ Get a free " + PROVIDERS[prov.value].label.split(" ")[0] + " key";
+    };
+    prov.onchange = syncProv;
+    link.href = PROVIDERS[prov.value].getUrl;
+    link.textContent = "→ Get a free " + PROVIDERS[prov.value].label.split(" ")[0] + " key";
     $("#ai-save", container).onclick = () => {
       const apiKey = $("#ai-key", container).value.trim();
       if (!apiKey) { flash(container, "Please paste a key first."); return; }
-      setCfg({ provider: prov.value, apiKey, model: PROVIDERS[prov.value].defaultModel });
+      setCfg({ provider: prov.value, apiKey, model: modelSel.value });
       history = [];
       mount(container);
     };
+    if (hasKey()) $("#ai-cancel", container).onclick = () => mount(container);
   }
 
   function renderPanel(container, cfg) {
     container.innerHTML = `
       <div class="card" style="border-color:rgba(138,108,255,.4)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <h3 style="margin:0">✨ Real AI Coach — ${PROVIDERS[cfg.provider]?.label || cfg.provider}</h3>
-          <button class="ghost-btn" id="ai-settings" style="font-size:11.5px">⚙ change key</button>
+          <h3 style="margin:0">✨ Real AI Coach — ${PROVIDERS[cfg.provider]?.label || cfg.provider} · <span style="color:var(--muted);font-weight:400">${cfg.model || ""}</span></h3>
+          <button class="ghost-btn" id="ai-settings" style="font-size:11.5px">⚙ change key / model</button>
         </div>
         <div class="hint" style="margin-bottom:14px">Uses your last 14 days + averages. Ask anything, or get a full read on where you stand.</div>
         <div id="ai-chat" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px"></div>
@@ -201,11 +219,7 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
     $("#ai-input", container).addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); $("#ai-send", container).click(); }
     });
-    $("#ai-settings", container).onclick = () => {
-      if (confirm("Remove the saved API key from this browser?")) {
-        localStorage.removeItem(CFG_KEY); history = []; mount(container);
-      }
-    };
+    $("#ai-settings", container).onclick = () => renderSetup(container);
   }
 
   /* ----------------------------- helpers ----------------------------- */
