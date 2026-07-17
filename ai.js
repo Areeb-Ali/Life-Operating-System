@@ -9,29 +9,13 @@
   const $ = (s, r = document) => r.querySelector(s);
 
   /* --------------------------- Providers ----------------------------- */
+  // Groq is first → it becomes the default. Its free tier is the most reliable
+  // (Gemini often returns "limit: 0" for new / non-US accounts).
   const PROVIDERS = {
-    gemini: {
-      label: "Google Gemini (free)",
-      defaultModel: "gemini-1.5-flash",
-      models: ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-2.5-flash"],
-      getUrl: "https://aistudio.google.com/app/apikey",
-      async call(cfg, system, history) {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model || this.defaultModel}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
-        const body = {
-          systemInstruction: { parts: [{ text: system }] },
-          contents: history.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
-          generationConfig: { temperature: 0.7, maxOutputTokens: 900 },
-        };
-        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-        const data = await r.json();
-        if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
-        return data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "(no reply)";
-      },
-    },
     groq: {
-      label: "Groq (free, very fast)",
+      label: "Groq — recommended (free, fast)",
       defaultModel: "llama-3.3-70b-versatile",
-      models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-20b"],
+      models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b"],
       getUrl: "https://console.groq.com/keys",
       async call(cfg, system, history) {
         return openaiStyle("https://api.groq.com/openai/v1/chat/completions", cfg, system, history);
@@ -44,6 +28,24 @@
       getUrl: "https://openrouter.ai/keys",
       async call(cfg, system, history) {
         return openaiStyle("https://openrouter.ai/api/v1/chat/completions", cfg, system, history);
+      },
+    },
+    gemini: {
+      label: "Google Gemini (needs billing in some regions)",
+      defaultModel: "gemini-2.0-flash",
+      models: ["gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"],
+      getUrl: "https://aistudio.google.com/app/apikey",
+      async call(cfg, system, history) {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${cfg.model || this.defaultModel}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+        const body = {
+          systemInstruction: { parts: [{ text: system }] },
+          contents: history.map(m => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] })),
+          generationConfig: { temperature: 0.7, maxOutputTokens: 900 },
+        };
+        const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data?.error?.message || `HTTP ${r.status}`);
+        return data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("") || "(no reply)";
       },
     },
   };
@@ -104,8 +106,9 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
 
   function renderSetup(container, prefill = {}) {
     const cur = { ...getCfg(), ...prefill };
+    const defProv = cur.provider || Object.keys(PROVIDERS)[0];
     const opts = Object.entries(PROVIDERS).map(([k, v]) =>
-      `<option value="${k}" ${k===cur.provider?"selected":""}>${v.label}</option>`).join("");
+      `<option value="${k}" ${k===defProv?"selected":""}>${v.label}</option>`).join("");
     const modelOpts = (prov, sel) => (PROVIDERS[prov].models || [PROVIDERS[prov].defaultModel])
       .map(m => `<option value="${m}" ${m===sel?"selected":""}>${m}</option>`).join("");
     container.innerHTML = `
@@ -113,7 +116,8 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
         <h3>✨ Turn on the real AI Coach (free)</h3>
         <div class="hint" style="font-size:13px;line-height:1.6;margin-bottom:14px">
           Paste a free API key below. It's saved <b>only in this browser</b> — never uploaded, never committed to GitHub.<br>
-          Getting a <b>quota / limit: 0</b> error on Gemini? Try model <b>gemini-1.5-flash</b>, or switch provider to <b>Groq</b> (most reliable free tier).
+          <b>Use Groq</b> — its free tier just works. Gemini often returns <b>limit: 0</b> for new / non-US accounts
+          (that's Google's restriction, not a bug here) and would need billing enabled.
         </div>
         <div class="form-grid">
           <div class="field">
@@ -122,7 +126,7 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
           </div>
           <div class="field">
             <label>Model</label>
-            <select id="ai-model">${modelOpts(cur.provider || "gemini", cur.model)}</select>
+            <select id="ai-model">${modelOpts(defProv, cur.model || PROVIDERS[defProv].defaultModel)}</select>
           </div>
           <div class="field field-full">
             <label>API Key</label>
