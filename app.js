@@ -424,6 +424,8 @@
         <div class="page-title">AI Coach</div>
         <div class="page-sub">Learned from your history. Supportive, never shaming — focused on your weekly averages, not one perfect day.</div>
       </div>
+      <div id="ai-section"></div>
+      <h3 style="color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:22px 0 12px">Instant pattern checks (offline)</h3>
       ${msgs.map(m=>`
         <div class="callout ${m.type}">
           <div class="ci">${m.icon}</div>
@@ -439,6 +441,7 @@
           • If ACCA slips a few days, I'll gently point back to the long-term goal — that's it.
         </div>
       </div>`;
+    if (window.AICoach) window.AICoach.mount($("#ai-section"));
   }
 
   /* ---------- Weekly Report ---------- */
@@ -628,8 +631,38 @@
     r.readAsText(file);
   };
 
+  /* --------- Build a compact context string for the real AI ---------- */
+  function buildAIContext() {
+    const rows = entArr();
+    const today = DB[todayStr()];
+    const line = (e) => `${e.date} (${dayName(e.date).slice(0,3)}): ACCA ${round1(+e.study||0)}h, Job ${round1(+e.job||0)}h, JobUpgrade ${round1(+e.jobUpgrade||0)}h, Bots ${round1(+e.bots||0)}h, Reading ${round1(+e.reading||0)}h, Exercise ${round1(+e.exercise||0)}h, Instagram ${round1(+(e.ent?.instagram)||0)}h, Games ${round1(+(e.ent?.games)||0)}h, Netflix/YT ${round1(+(e.ent?.media)||0)}h, Sleep ${round1(+e.sleep||0)}h, Mood ${e.mood||"-"}/10, Energy ${e.energy||"-"}/10${e.notes?`, Note: "${e.notes}"`:""}`;
+    const recent = rows.slice(-14).map(line).join("\n");
+    const avgs = `Rolling averages —
+  Last 7 days: Productive ${round1(avgOver(productiveHours,7))}h/day, ACCA ${round1(avgOver(e=>+e.study||0,7))}h/day, Bots ${round1(avgOver(e=>+e.bots||0,7))}h/day, Job ${round1(avgOver(e=>+e.job||0,7))}h/day, Entertainment ${round1(avgOver(entertainmentHours,7))}h/day, Sleep ${round1(avgOver(e=>+e.sleep||0,7))}h/day.
+  Last 30 days: Productive ${round1(avgOver(productiveHours,30))}h/day, ACCA ${round1(avgOver(e=>+e.study||0,30))}h/day.`;
+    const totals = `Lifetime totals — ACCA ${round1(sumAll(e=>+e.study||0))}h, Bots ${round1(sumAll(e=>+e.bots||0))}h, days logged ${rows.length}.`;
+    const ruleNotes = coachMessages().map(m => `- ${m.title}`).join("\n");
+    const T = CFG.targets;
+    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), Job ${T.job}h, Bots ${T.bots}h, Exercise ${T.exercise}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.
+
+${totals}
+${avgs}
+
+RECENT DAYS (most recent last):
+${recent || "No data logged yet."}
+
+RULE-ENGINE FLAGS FOR TODAY:
+${ruleNotes || "none"}
+
+TODAY IS: ${todayStr()} (${dayName(todayStr())})${today ? "" : " — NOT logged yet."}`;
+  }
+
+  const PHILOSOPHY = CFG.philosophy;
+
   /* ----------------------------- Boot -------------------------------- */
-  window.LOS = { go };
+  window.LOS = { go, aiContext: buildAIContext, philosophy: PHILOSOPHY, refreshCoach: renderCoach };
+  window.dispatchEvent(new Event("los-ready"));
   renderAll();
   go("dashboard");
 })();
