@@ -1,0 +1,13 @@
+# Local secrets — API keys are never committed.
+# The AI Coach stores your key in the browser (localStorage), not in the repo.
+secrets.js
+.env
+*.local
+
+# Data backups exported from the app
+life-os-backup-*.json
+
+# OS / editor junk
+Thumbs.db
+.DS_Store
+.vscode/

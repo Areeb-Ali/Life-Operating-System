@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Life Operating System</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">◆</div>
+        <div>
+          <div class="brand-title">Life OS</div>
+          <div class="brand-sub">Operating System</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <button class="nav-btn active" data-view="dashboard"><span>📊</span> Dashboard</button>
+        <button class="nav-btn" data-view="daily"><span>✍️</span> Daily Input</button>
+        <button class="nav-btn" data-view="coach"><span>🧭</span> AI Coach</button>
+        <button class="nav-btn" data-view="weekly"><span>📅</span> Weekly Report</button>
+        <button class="nav-btn" data-view="goals"><span>🎯</span> Goals</button>
+        <button class="nav-btn" data-view="achievements"><span>🏆</span> Achievements</button>
+        <button class="nav-btn" data-view="history"><span>🗂️</span> History</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button id="exportBtn" class="ghost-btn">⬇ Export data</button>
+        <button id="importBtn" class="ghost-btn">⬆ Import data</button>
+        <input type="file" id="importFile" accept="application/json" hidden />
+        <div class="foot-note">Your data is stored only on this device.</div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div id="view-dashboard" class="view"></div>
+      <div id="view-daily" class="view hidden"></div>
+      <div id="view-coach" class="view hidden"></div>
+      <div id="view-weekly" class="view hidden"></div>
+      <div id="view-goals" class="view hidden"></div>
+      <div id="view-achievements" class="view hidden"></div>
+      <div id="view-history" class="view hidden"></div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

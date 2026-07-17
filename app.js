@@ -1,0 +1,635 @@
+/* =========================================================================
+   Life Operating System — app.js
+   All logic: storage, calculations, AI coach, achievements, rendering.
+   ========================================================================= */
+(() => {
+  const CFG = window.LOS_CONFIG;
+  const KEY = "los_entries_v1";
+  const $  = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+
+  /* ----------------------------- Storage ----------------------------- */
+  const load = () => {
+    try { return JSON.parse(localStorage.getItem(KEY)) || {}; }
+    catch { return {}; }
+  };
+  const save = (data) => localStorage.setItem(KEY, JSON.stringify(data));
+  let DB = load(); // { "2026-07-17": {entry}, ... }
+
+  /* ----------------------------- Date utils -------------------------- */
+  const todayStr = () => new Date().toISOString().slice(0, 10);
+  const fmtDate  = (s) => new Date(s + "T00:00:00").toLocaleDateString("en-GB",
+                    { weekday: "short", day: "numeric", month: "short" });
+  const dayName  = (s) => new Date(s + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" });
+  const addDays  = (s, n) => { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); };
+  const round1   = (n) => Math.round(n * 10) / 10;
+  const hm = (h) => {                       // 3.5 -> "3h 30m"
+    const H = Math.floor(h); const M = Math.round((h - H) * 60);
+    return M ? `${H}h ${M}m` : `${H}h`;
+  };
+
+  /* ----------------------- Derived per-entry ------------------------- */
+  const entArr  = () => Object.values(DB).sort((a,b) => a.date < b.date ? -1 : 1);
+  const productiveHours = (e) => CFG.activities.filter(a => a.productive)
+                                    .reduce((s,a) => s + (+e[a.key] || 0), 0);
+  const entertainmentHours = (e) => CFG.entertainment
+                                    .reduce((s,a) => s + (+(e.ent?.[a.key]) || 0), 0);
+
+  // average of a numeric getter over the last N days that HAVE entries
+  const avgOver = (getter, days) => {
+    const start = addDays(todayStr(), -(days - 1));
+    const rows = entArr().filter(e => e.date >= start && e.date <= todayStr());
+    if (!rows.length) return 0;
+    return rows.reduce((s,e) => s + getter(e), 0) / rows.length;
+  };
+  const avgAll = (getter) => {
+    const rows = entArr(); if (!rows.length) return 0;
+    return rows.reduce((s,e) => s + getter(e), 0) / rows.length;
+  };
+  const sumAll = (getter) => entArr().reduce((s,e) => s + getter(e), 0);
+
+  /* ===================================================================
+     LIFE BALANCE SCORE (out of 100)
+     =================================================================== */
+  const balanceBreakdown = (e) => {
+    const W = CFG.balanceWeights, T = CFG.targets;
+    const cap = (v, max) => Math.max(0, Math.min(1, v)) * max;
+    // sleep: full inside optimal window, penalise deviation
+    let sleepScore;
+    const sl = +e.sleep || 0;
+    if (sl >= T.sleepMin && sl <= T.sleepMax) sleepScore = W.sleep;
+    else { const dev = sl < T.sleepMin ? T.sleepMin - sl : sl - T.sleepMax;
+           sleepScore = Math.max(0, W.sleep * (1 - dev / 3)); }
+    return {
+      sleep:    round1(sleepScore),
+      study:    round1(cap((+e.study||0)   / T.study,      1) * W.study),
+      job:      round1(cap((+e.job||0)      / T.job,        1) * W.job),
+      bot:      round1(cap((+e.bots||0)     / T.bots,       1) * W.bot),
+      exercise: round1(cap((+e.exercise||0) / T.exercise,   1) * W.exercise),
+      mood:     round1(((+e.mood||0) / 10) * W.mood),
+    };
+  };
+  const balanceScore = (e) => Object.values(balanceBreakdown(e)).reduce((a,b)=>a+b,0);
+
+  /* ===================================================================
+     PRIORITY CHECK  (uses CFG.priorities order)
+     =================================================================== */
+  const priorityCheck = (e) => {
+    return CFG.priorities.map((key, i) => {
+      const act = [...CFG.activities].find(a => a.key === key);
+      const val = +e[key] || 0;
+      const done = val > 0;
+      // compare with the NEXT lower priority — higher priority should get >= time
+      let status = "ok", note = "On track";
+      if (!done) { status = "no"; note = "Not touched today"; }
+      const lower = CFG.priorities[i+1];
+      if (lower) {
+        const lowerVal = +e[lower] || 0;
+        const lowerAct = CFG.activities.find(a => a.key === lower);
+        if (done && lowerVal > val) {
+          status = "bad";
+          note = `Less than ${lowerAct?.label} (${hm(lowerVal)})`;
+        }
+      }
+      return { key, label: act?.label || key, icon: act?.icon || "•", val, status, note, rank: i+1 };
+    });
+  };
+
+  /* ===================================================================
+     AI COACH  — learns from the user's OWN history, never shames.
+     Encodes the philosophy from CFG.
+     =================================================================== */
+  const coachMessages = () => {
+    const out = [];               // {type:'good|warn|alert|info', title, text}
+    const rows = entArr();
+    const today = DB[todayStr()];
+    const C = CFG.coach, T = CFG.targets;
+
+    if (!rows.length) {
+      out.push({ type:"info", icon:"👋", title:"Welcome to your Life OS",
+        text:"Fill in today's entry and I'll start learning your patterns. I give advice based on <b>your</b> history — not generic tips." });
+      return out;
+    }
+
+    /* --- 1. ACCA is the top priority: was it done today? ------------- */
+    if (today) {
+      const study = +today.study || 0;
+      if (study > 0) {
+        out.push({ type:"good", icon:"✅", title:"ACCA done today — that already makes today a success",
+          text:`You logged ${hm(study)} of ACCA. Even if the rest of the day was quiet, your #1 priority moved forward. That's the win that matters.` });
+      }
+    }
+
+    /* --- 2. ACCA skipped for several recent days -------------------- */
+    const recent = rows.slice(-C.studyDropDays);
+    if (recent.length >= C.studyDropDays && recent.every(e => (+e.study||0) === 0)) {
+      out.push({ type:"alert", icon:"📚", title:`ACCA has slipped ${C.studyDropDays} days in a row`,
+        text:`No shame here — life gets busy. But ACCA is your long-term goal, the one that outlasts any single job. Even 30 focused minutes tomorrow restarts the momentum. Want to make tomorrow a "study first" day?` });
+    }
+
+    /* --- 3. Sleep pattern learned from data ------------------------- */
+    const bigSleep = rows.filter(e => (+e.sleep||0) > C.sleepHighWarn);
+    if (bigSleep.length >= 2) {
+      const pAfter = bigSleep.reduce((s,e)=>s+productiveHours(e),0)/bigSleep.length;
+      const normal = rows.filter(e => (+e.sleep||0) >= T.sleepMin && (+e.sleep||0) <= T.sleepMax+1);
+      const pNormal = normal.length ? normal.reduce((s,e)=>s+productiveHours(e),0)/normal.length : null;
+      let txt = `On the ${bigSleep.length} days you slept over ${C.sleepHighWarn}h, your productive time averaged <b>${hm(pAfter)}</b>.`;
+      if (pNormal && pNormal > pAfter) txt += ` On ${T.sleepMin}–${T.sleepMax}h nights it was <b>${hm(pNormal)}</b> — noticeably higher. Your body seems to run best around ${T.sleepMin}–${T.sleepMax} hours.`;
+      out.push({ type:"warn", icon:"😴", title:"Watch the long sleeps", text: txt });
+    }
+    // today specific
+    if (today && (+today.sleep||0) > C.sleepHighWarn) {
+      out.push({ type:"warn", icon:"⏰", title:"You slept a lot today",
+        text:`${hm(+today.sleep)} of sleep. Historically your productivity dips after ${C.sleepHighWarn}h. Aim for ${T.sleepMin}–${T.sleepMax}h tonight and see how tomorrow feels.` });
+    }
+
+    /* --- 4. Instagram / entertainment + tiredness ------------------- */
+    if (today) {
+      const ig = +(today.ent?.instagram) || 0;
+      if (ig > C.instagramGuilt) {
+        out.push({ type:"warn", icon:"📸", title:"Instagram ran long today",
+          text:`${hm(ig)} on Instagram. You've told me you usually feel guilty past ${C.instagramGuilt}h — and it tends to happen when you're mentally tired, not lazy. That's a signal to rest properly, not to scroll. Tomorrow, try a real break instead.` });
+      }
+      const ent = entertainmentHours(today);
+      if (ent > C.entertainmentWarn) {
+        out.push({ type:"info", icon:"📺", title:"Entertainment above your line",
+          text:`Total ${hm(ent)} today vs your ${hm(T.entertainment)} target. No guilt — just nudging the weekly average back down. One swapped hour into ACCA changes the whole week.` });
+      }
+    }
+    // learned link: entertainment vs mood
+    const highEnt = rows.filter(e => entertainmentHours(e) > C.entertainmentWarn && e.mood);
+    if (highEnt.length >= 3) {
+      const m = highEnt.reduce((s,e)=>s+(+e.mood||0),0)/highEnt.length;
+      const lowEnt = rows.filter(e => entertainmentHours(e) <= T.entertainment && e.mood);
+      const m2 = lowEnt.length ? lowEnt.reduce((s,e)=>s+(+e.mood||0),0)/lowEnt.length : null;
+      if (m2 && m2 - m >= 0.8) {
+        out.push({ type:"info", icon:"🔎", title:"A pattern in your data",
+          text:`Your mood averages <b>${round1(m)}/10</b> on heavy-entertainment days vs <b>${round1(m2)}/10</b> on lighter ones. The scrolling isn't making the tiredness better. Worth remembering next time you reach for the phone.` });
+      }
+    }
+
+    /* --- 5. Bots: user overworks because they enjoy it -------------- */
+    if (today) {
+      const bots = +today.bots || 0, study = +today.study || 0;
+      if (bots > study && bots >= 2) {
+        out.push({ type:"warn", icon:"🤖", title:"Bots beat ACCA today",
+          text:`${hm(bots)} on bots vs ${hm(study)} on ACCA. Building bots is genuinely valuable and I know you love it — but it's priority #4, and it's the thing most likely to quietly crowd out your #1. Keep the joy, just cap it so ACCA goes first tomorrow.` });
+      }
+    }
+    const botAvg7 = avgOver(e => +e.bots||0, 7), studyAvg7 = avgOver(e => +e.study||0, 7);
+    if (botAvg7 > studyAvg7 && rows.length >= 4) {
+      out.push({ type:"alert", icon:"⚖️", title:"This week: bots are outpacing ACCA",
+        text:`7-day averages — bots <b>${hm(botAvg7)}/day</b>, ACCA <b>${hm(studyAvg7)}/day</b>. Money and cool projects matter, but they should never replace ACCA. Let's flip these two around this week.` });
+    }
+
+    /* --- 6. Positive momentum on the weekly average ---------------- */
+    const p7 = avgOver(productiveHours, 7), p30 = avgOver(productiveHours, 30);
+    if (rows.length >= 5 && p7 > p30 && p30 > 0) {
+      out.push({ type:"good", icon:"📈", title:"Your weekly average is climbing",
+        text:`Last 7 days: <b>${hm(p7)}/day</b> vs 30-day <b>${hm(p30)}/day</b>. Progress isn't about one perfect day — it's this line going up. It is. Keep going.` });
+    }
+
+    /* --- 7. Study target coaching (gentle, weekly) ----------------- */
+    if (rows.length >= 3) {
+      const s7 = avgOver(e => +e.study||0, 7);
+      if (s7 < T.study) {
+        const need = (T.study - s7) * 60;
+        out.push({ type:"info", icon:"🎯", title:"ACCA weekly nudge",
+          text:`You're averaging ${hm(s7)}/day of ACCA against a ${hm(T.study)} target. That's just <b>+${Math.round(need)} min/day</b> — one focused session. Small, weekly, sustainable. No need to be perfect today.` });
+      }
+    }
+
+    if (!out.length) {
+      out.push({ type:"good", icon:"🌱", title:"Steady and balanced",
+        text:"Nothing to flag today — your priorities and rest look balanced. Keep the weekly average steady." });
+    }
+    return out;
+  };
+
+  /* ===================================================================
+     ACHIEVEMENTS
+     =================================================================== */
+  const consecutiveStudyDays = () => {
+    const rows = entArr(); let best = 0, cur = 0, prev = null;
+    for (const e of rows) {
+      const studied = (+e.study||0) > 0;
+      if (studied) {
+        if (prev && addDays(prev,1) === e.date) cur++; else cur = 1;
+        best = Math.max(best, cur); prev = e.date;
+      } else { cur = 0; prev = e.date; }
+    }
+    return best;
+  };
+  const achievements = () => {
+    const totalACCA = sumAll(e => +e.study||0);
+    const totalBot  = sumAll(e => +e.bots||0);
+    const streak    = consecutiveStudyDays();
+    const has8  = entArr().some(e => productiveHours(e) >= 8);
+    const has10 = entArr().some(e => productiveHours(e) >= 10);
+    const avg7  = avgOver(productiveHours, 7);
+    const avg7ok = entArr().length >= 7 && avg7 > 6;
+    return [
+      { emoji:"🔥", name:"7 Days ACCA Streak",   cur: Math.min(streak,7),  goal:7,   unit:"days" },
+      { emoji:"📅", name:"30 Days ACCA Streak",  cur: Math.min(streak,30), goal:30,  unit:"days" },
+      { emoji:"💯", name:"100 Hours ACCA",       cur: Math.min(totalACCA,100),  goal:100,  unit:"h" },
+      { emoji:"🎓", name:"500 Hours ACCA",       cur: Math.min(totalACCA,500),  goal:500,  unit:"h" },
+      { emoji:"🤖", name:"100 Hours Bot",        cur: Math.min(totalBot,100),   goal:100,  unit:"h" },
+      { emoji:"⚡", name:"First 8-Hour Day",     cur: has8?1:0,   goal:1, unit:"" },
+      { emoji:"🚀", name:"First 10-Hour Day",    cur: has10?1:0,  goal:1, unit:"" },
+      { emoji:"🌟", name:"7-Day Avg Above 6h",   cur: avg7ok?1:0, goal:1, unit:"" },
+    ].map(a => ({ ...a, unlocked: a.cur >= a.goal }));
+  };
+
+  /* ===================================================================
+     RENDERING
+     =================================================================== */
+  const toast = (msg) => {
+    const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden");
+    clearTimeout(t._t); t._t = setTimeout(() => t.classList.add("hidden"), 2200);
+  };
+
+  const statTile = (label, value, unit, icon, delta) => `
+    <div class="card stat">
+      <div class="icon">${icon}</div>
+      <div class="label">${label}</div>
+      <div class="value">${value}<small>${unit||""}</small></div>
+      ${delta ? `<div class="delta ${delta.cls}">${delta.txt}</div>` : ""}
+    </div>`;
+
+  /* ---------- Dashboard ---------- */
+  function renderDashboard() {
+    const el = $("#view-dashboard");
+    const rows = entArr();
+    const today = DB[todayStr()];
+    const p7 = avgOver(productiveHours,7), p30 = avgOver(productiveHours,30);
+    const deltaTxt = (a,b) => b ? (a>=b
+        ? {cls:"up",  txt:`▲ ${hm(a-b)} vs 30-day avg`}
+        : {cls:"down",txt:`▼ ${hm(b-a)} vs 30-day avg`}) : null;
+
+    // rolling-average hero (the "most important feature")
+    const rolling = `
+      <div class="card" style="grid-column:1/-1">
+        <h3>⭐ Last 7 Days — Rolling Average (what actually matters)</h3>
+        <div class="mini-grid">
+          <div class="mini"><div class="ml">Productive</div><div class="mv">${hm(p7)}</div></div>
+          <div class="mini"><div class="ml">Study (ACCA)</div><div class="mv">${hm(avgOver(e=>+e.study||0,7))}</div></div>
+          <div class="mini"><div class="ml">Bots</div><div class="mv">${hm(avgOver(e=>+e.bots||0,7))}</div></div>
+          <div class="mini"><div class="ml">Job</div><div class="mv">${hm(avgOver(e=>+e.job||0,7))}</div></div>
+          <div class="mini"><div class="ml">Entertainment</div><div class="mv">${hm(avgOver(entertainmentHours,7))}</div></div>
+          <div class="mini"><div class="ml">Sleep</div><div class="mv">${hm(avgOver(e=>+e.sleep||0,7))}</div></div>
+        </div>
+      </div>`;
+
+    // sparkline of last 14 productive days
+    const last14 = rows.slice(-14);
+    const maxP = Math.max(4, ...last14.map(productiveHours));
+    const spark = last14.length ? `
+      <div class="card" style="grid-column:1/-1">
+        <h3>Productive Hours — last ${last14.length} days</h3>
+        <div class="spark">
+          ${last14.map(e=>`<i style="height:${Math.max(4,(productiveHours(e)/maxP)*100)}%" title="${fmtDate(e.date)}: ${hm(productiveHours(e))}"></i>`).join("")}
+        </div>
+      </div>` : "";
+
+    const balToday = today ? balanceScore(today) : 0;
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Dashboard</div>
+        <div class="page-sub">${today ? "Today's entry is logged ✓" : "No entry yet for today — head to Daily Input"} · ${fmtDate(todayStr())}</div>
+      </div>
+      <div class="grid cols-4">
+        ${statTile("Today's Productive", today?hm(productiveHours(today)):"—", "", "⚡", null)}
+        ${statTile("Last 7 Days Avg", hm(p7), "/day", "📊", deltaTxt(p7,p30))}
+        ${statTile("Last 30 Days Avg", hm(p30), "/day", "🗓️", null)}
+        ${statTile("Balance Score Today", today?Math.round(balToday):"—", today?"/100":"", "⚖️", null)}
+      </div>
+      <div class="grid cols-4" style="margin-top:16px">
+        ${statTile("ACCA Avg (7d)", hm(avgOver(e=>+e.study||0,7)), "/day", "📚", null)}
+        ${statTile("Job Avg (7d)", hm(avgOver(e=>+e.job||0,7)), "/day", "💼", null)}
+        ${statTile("Bot Avg (7d)", hm(avgOver(e=>+e.bots||0,7)), "/day", "🤖", null)}
+        ${statTile("Sleep Avg (7d)", hm(avgOver(e=>+e.sleep||0,7)), "/day", "😴", null)}
+      </div>
+      <div class="grid" style="margin-top:16px">${rolling}</div>
+
+      <div class="grid cols-2" style="margin-top:16px">
+        <div class="card">
+          <h3>🎯 Today's Priority Check</h3>
+          ${today ? priorityCheck(today).map(p=>`
+            <div class="prio-row">
+              <div class="prio-left">
+                <div class="prio-rank">${p.rank}</div>
+                <div>${p.icon} ${p.label}<div class="hint">${hm(p.val)} logged</div></div>
+              </div>
+              <span class="pill ${p.status==='ok'?'ok':p.status==='no'?'no':'bad'}">${p.status==='ok'?'✓ '+p.note:p.status==='no'?'○ '+p.note:'⚠ '+p.note}</span>
+            </div>`).join("") : `<div class="empty">Log today to see your priority check.</div>`}
+        </div>
+        <div class="card">
+          <h3>🧭 Coach — top note</h3>
+          ${(() => { const m = coachMessages()[0];
+             return `<div class="callout ${m.type}"><div class="ci">${m.icon}</div>
+               <div class="ctext"><div class="ctitle">${m.title}</div>${m.text}</div></div>
+               <button class="btn secondary" onclick="LOS.go('coach')">See all coach insights →</button>`; })()}
+        </div>
+      </div>
+      <div class="grid" style="margin-top:16px">${spark}</div>`;
+  }
+
+  /* ---------- Daily Input ---------- */
+  function renderDaily() {
+    const el = $("#view-daily");
+    const d = DB[todayStr()] || {};
+    const actFields = CFG.activities.map(a => `
+      <div class="field">
+        <label>${a.icon} ${a.label}</label>
+        <input type="number" step="0.25" min="0" max="24" id="f_${a.key}" value="${d[a.key]??""}" placeholder="hours" />
+      </div>`).join("");
+    const entFields = CFG.entertainment.map(a => `
+      <div class="field">
+        <label>${a.icon} ${a.label}</label>
+        <input type="number" step="0.25" min="0" max="24" id="e_${a.key}" value="${d.ent?.[a.key]??""}" placeholder="hours" />
+      </div>`).join("");
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Daily Input</div>
+        <div class="page-sub">One quick fill each day. Everything below is optional — log what you can.</div>
+      </div>
+      <div class="card">
+        <div class="form-grid">
+          <div class="field">
+            <label>📆 Date</label>
+            <input type="date" id="f_date" value="${todayStr()}" />
+          </div>
+          <div class="field">
+            <label>😴 Sleep (hours)</label>
+            <input type="number" step="0.25" min="0" max="24" id="f_sleep" value="${d.sleep??""}" placeholder="e.g. 8" />
+          </div>
+
+          <div class="section-label">Productive & life activities (hours)</div>
+          ${actFields}
+
+          <div class="section-label">Entertainment (hours)</div>
+          ${entFields}
+
+          <div class="section-label">How you felt</div>
+          <div class="field">
+            <label>🙂 Mood (1–10)</label>
+            <div class="range-wrap"><input type="range" min="1" max="10" id="f_mood" value="${d.mood??7}" oninput="this.nextElementSibling.textContent=this.value"><span class="range-val">${d.mood??7}</span></div>
+          </div>
+          <div class="field">
+            <label>⚡ Energy (1–10)</label>
+            <div class="range-wrap"><input type="range" min="1" max="10" id="f_energy" value="${d.energy??7}" oninput="this.nextElementSibling.textContent=this.value"><span class="range-val">${d.energy??7}</span></div>
+          </div>
+          <div class="field field-full">
+            <label>📝 Notes</label>
+            <textarea id="f_notes" placeholder="Anything about today...">${d.notes??""}</textarea>
+          </div>
+
+          <div class="section-label">🌙 Night Reflection (coach asks — answer if you like)</div>
+          <div class="field field-full"><label>What made today successful?</label>
+            <input type="text" id="r_win" value="${d.reflect?.win??""}" placeholder="One good thing"></div>
+          <div class="field field-full"><label>What slowed you down today?</label>
+            <input type="text" id="r_slow" value="${d.reflect?.slow??""}" placeholder="No judgement — just noticing"></div>
+          <div class="field field-full"><label>One thing to improve tomorrow</label>
+            <input type="text" id="r_next" value="${d.reflect?.next??""}" placeholder="Small and doable"></div>
+
+          <div class="form-actions">
+            <button class="btn" id="saveBtn">💾 Save today</button>
+            <span class="hint">Data saves to this device only.</span>
+          </div>
+        </div>
+      </div>`;
+
+    $("#saveBtn").onclick = () => {
+      const date = $("#f_date").value || todayStr();
+      const entry = { date, sleep:+$("#f_sleep").value||0,
+        mood:+$("#f_mood").value, energy:+$("#f_energy").value,
+        notes:$("#f_notes").value.trim(), ent:{},
+        reflect:{ win:$("#r_win").value.trim(), slow:$("#r_slow").value.trim(), next:$("#r_next").value.trim() } };
+      CFG.activities.forEach(a => entry[a.key] = +$("#f_"+a.key).value||0);
+      CFG.entertainment.forEach(a => entry.ent[a.key] = +$("#e_"+a.key).value||0);
+      DB[date] = entry; save(DB);
+      toast("Saved ✓  Coach updated.");
+      renderAll(); go("dashboard");
+    };
+  }
+
+  /* ---------- Coach ---------- */
+  function renderCoach() {
+    const el = $("#view-coach");
+    const msgs = coachMessages();
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">AI Coach</div>
+        <div class="page-sub">Learned from your history. Supportive, never shaming — focused on your weekly averages, not one perfect day.</div>
+      </div>
+      ${msgs.map(m=>`
+        <div class="callout ${m.type}">
+          <div class="ci">${m.icon}</div>
+          <div class="ctext"><div class="ctitle">${m.title}</div>${m.text}</div>
+        </div>`).join("")}
+      <div class="card" style="margin-top:8px">
+        <h3>My coaching principles</h3>
+        <div class="hint" style="font-size:13px;line-height:1.7">
+          • ACCA is your #1 — a day with ACCA done is a good day, even if everything else was quiet.<br>
+          • Money & bots matter, but they never replace ACCA.<br>
+          • I focus on improving your <b>weekly average</b>, not chasing a perfect day.<br>
+          • I never shame you. Tiredness, not laziness, is usually behind the scrolling.<br>
+          • If ACCA slips a few days, I'll gently point back to the long-term goal — that's it.
+        </div>
+      </div>`;
+  }
+
+  /* ---------- Weekly Report ---------- */
+  function weekWindow() {                       // most recent Mon..Sun containing data
+    // last 7 days ending today
+    const start = addDays(todayStr(), -6);
+    return entArr().filter(e => e.date >= start && e.date <= todayStr());
+  }
+  function renderWeekly() {
+    const el = $("#view-weekly");
+    const week = weekWindow();
+    if (!week.length) {
+      el.innerHTML = `<div class="page-head"><div class="page-title">Weekly Report</div></div>
+        <div class="empty">No data in the last 7 days yet. Log a few days and your Sunday report writes itself.</div>`;
+      return;
+    }
+    const avgP = week.reduce((s,e)=>s+productiveHours(e),0)/week.length;
+    const best = week.reduce((a,e)=> productiveHours(e)>productiveHours(a)?e:a);
+    const worst= week.reduce((a,e)=> productiveHours(e)<productiveHours(a)?e:a);
+    const totalStudy = week.reduce((s,e)=>s+(+e.study||0),0);
+    const totalBot   = week.reduce((s,e)=>s+(+e.bots||0),0);
+    const totalEnt   = week.reduce((s,e)=>s+entertainmentHours(e),0);
+    const totalAll   = week.reduce((s,e)=>s+productiveHours(e)+entertainmentHours(e),0) || 1;
+    const sleepAvg   = week.reduce((s,e)=>s+(+e.sleep||0),0)/week.length;
+    const overall    = Math.round(week.reduce((s,e)=>s+balanceScore(e),0)/week.length);
+
+    // biggest improvement vs previous week
+    const prevStart = addDays(todayStr(), -13), prevEnd = addDays(todayStr(), -7);
+    const prev = entArr().filter(e => e.date >= prevStart && e.date <= prevEnd);
+    const prevP = prev.length ? prev.reduce((s,e)=>s+productiveHours(e),0)/prev.length : null;
+    const improve = prevP!=null ? (avgP>=prevP
+        ? `▲ Up ${hm(avgP-prevP)}/day vs last week — momentum is with you.`
+        : `▼ Down ${hm(prevP-avgP)}/day vs last week — a reset week, not a failure.`)
+      : "Not enough history yet to compare with last week.";
+
+    const pct = (v) => Math.round((v/totalAll)*100);
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Weekly Report</div>
+        <div class="page-sub">${fmtDate(week[0].date)} → ${fmtDate(week.at(-1).date)} · auto-generated</div>
+      </div>
+      <div class="grid cols-4">
+        ${statTile("Avg Productive", hm(avgP), "/day", "⚡")}
+        ${statTile("Overall Score", overall, "/100", "⚖️")}
+        ${statTile("Best Day", dayName(best.date).slice(0,3), " "+hm(productiveHours(best)), "🌟")}
+        ${statTile("Worst Day", dayName(worst.date).slice(0,3), " "+hm(productiveHours(worst)), "🌧️")}
+      </div>
+      <div class="grid cols-2" style="margin-top:16px">
+        <div class="card">
+          <h3>This week in words</h3>
+          <div class="callout good"><div class="ci">📈</div><div class="ctext"><div class="ctitle">Biggest improvement</div>${improve}</div></div>
+          <div class="callout ${totalEnt>totalStudy?'warn':'info'}"><div class="ci">⌛</div><div class="ctext"><div class="ctitle">Biggest time waste</div>
+            ${hm(totalEnt)} on entertainment this week ${totalEnt>totalStudy?`— more than the ${hm(totalStudy)} you gave ACCA. Worth rebalancing next week.`:`— nicely under your ACCA time. Good control.`}</div></div>
+        </div>
+        <div class="card">
+          <h3>Where your week went</h3>
+          <div class="mini" style="margin-bottom:10px"><div class="ml">Study (ACCA)</div>
+            <div class="bar green"><i style="width:${pct(totalStudy)}%"></i></div><div class="hint">${pct(totalStudy)}% · ${hm(totalStudy)}</div></div>
+          <div class="mini" style="margin-bottom:10px"><div class="ml">Bots</div>
+            <div class="bar"><i style="width:${pct(totalBot)}%"></i></div><div class="hint">${pct(totalBot)}% · ${hm(totalBot)}</div></div>
+          <div class="mini"><div class="ml">Entertainment</div>
+            <div class="bar ${totalEnt>totalStudy?'red':'amber'}"><i style="width:${pct(totalEnt)}%"></i></div><div class="hint">${pct(totalEnt)}% · ${hm(totalEnt)}</div></div>
+          <div class="hint" style="margin-top:12px">Sleep average: <b>${hm(sleepAvg)}</b></div>
+        </div>
+      </div>`;
+  }
+
+  /* ---------- Goals ---------- */
+  function renderGoals() {
+    const el = $("#view-goals");
+    const T = CFG.targets;
+    const goalRow = (label, cur, target, unit="h") => {
+      const need = target - cur;
+      const cls = cur>=target ? "green" : need > target*0.4 ? "red" : "amber";
+      const pctv = Math.min(100, (cur/target)*100);
+      return `<div class="card">
+        <h3>${label}</h3>
+        <div class="grid cols-3" style="gap:10px">
+          <div class="mini"><div class="ml">Current</div><div class="mv">${hm(cur)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
+          <div class="mini"><div class="ml">Target</div><div class="mv">${hm(target)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
+          <div class="mini"><div class="ml">${need>0?"Need":"Surplus"}</div><div class="mv ${need>0?'':'up'}">${need>0?`+${Math.round(need*60)}m`:`✓`}</div></div>
+        </div>
+        <div class="bar ${cls}"><i style="width:${pctv}%"></i></div>
+        <div class="hint">${cur>=target?"Target reached — hold it steady this week 💪":`Just ${Math.round(need*60)} more minutes a day gets you there. Weekly, not overnight.`}</div>
+      </div>`;
+    };
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Weekly Goals</div>
+        <div class="page-sub">Based on your 7-day rolling averages. Small daily deltas, sustainable pace.</div>
+      </div>
+      <div class="grid cols-2">
+        ${goalRow("📚 Study (ACCA)", avgOver(e=>+e.study||0,7), T.study)}
+        ${goalRow("🤖 Bot Building", avgOver(e=>+e.bots||0,7), T.bots)}
+        ${goalRow("🏃 Exercise", avgOver(e=>+e.exercise||0,7), T.exercise)}
+        ${goalRow("📺 Entertainment (keep under)", avgOver(entertainmentHours,7), T.entertainment)}
+      </div>`;
+  }
+
+  /* ---------- Achievements ---------- */
+  function renderAchievements() {
+    const el = $("#view-achievements");
+    const list = achievements();
+    const unlocked = list.filter(a=>a.unlocked).length;
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Achievements</div>
+        <div class="page-sub">${unlocked} of ${list.length} unlocked · progress over streaks — a missed day never resets your total hours.</div>
+      </div>
+      <div class="ach-grid">
+        ${list.map(a=>`
+          <div class="ach ${a.unlocked?'unlocked':''}">
+            ${a.unlocked?'<div class="abadge">✓ done</div>':''}
+            <div class="amoji">${a.emoji}</div>
+            <div class="aname">${a.name}</div>
+            <div class="aprog">${a.goal>1 ? `${round1(a.cur)} / ${a.goal}${a.unit}` : (a.unlocked?'Unlocked':'Locked')}</div>
+            ${a.goal>1?`<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100,(a.cur/a.goal)*100)}%"></i></div>`:''}
+          </div>`).join("")}
+      </div>`;
+  }
+
+  /* ---------- History ---------- */
+  function renderHistory() {
+    const el = $("#view-history");
+    const rows = entArr().slice().reverse();
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">History</div>
+        <div class="page-sub">${rows.length} day(s) logged.</div>
+      </div>
+      <div class="card">
+        ${rows.length ? `<table class="table">
+          <thead><tr><th>Date</th><th>Prod.</th><th>ACCA</th><th>Job</th><th>Bots</th><th>Ent.</th><th>Sleep</th><th>Mood</th><th>Score</th><th></th></tr></thead>
+          <tbody>
+          ${rows.map(e=>`<tr>
+            <td>${fmtDate(e.date)}</td>
+            <td><b>${hm(productiveHours(e))}</b></td>
+            <td>${hm(+e.study||0)}</td>
+            <td>${hm(+e.job||0)}</td>
+            <td>${hm(+e.bots||0)}</td>
+            <td>${hm(entertainmentHours(e))}</td>
+            <td>${hm(+e.sleep||0)}</td>
+            <td>${e.mood||"—"}</td>
+            <td>${Math.round(balanceScore(e))}</td>
+            <td><span class="del" data-del="${e.date}">✕</span></td>
+          </tr>`).join("")}
+          </tbody></table>` : `<div class="empty">No entries yet.</div>`}
+      </div>`;
+    $$("[data-del]", el).forEach(b => b.onclick = () => {
+      if (confirm("Delete entry for " + b.dataset.del + "?")) {
+        delete DB[b.dataset.del]; save(DB); renderAll(); toast("Entry deleted");
+      }
+    });
+  }
+
+  /* ----------------------------- Router ------------------------------ */
+  function renderAll() {
+    renderDashboard(); renderCoach(); renderWeekly();
+    renderGoals(); renderAchievements(); renderHistory();
+  }
+  function go(view) {
+    $$(".view").forEach(v => v.classList.add("hidden"));
+    $("#view-"+view).classList.remove("hidden");
+    $$(".nav-btn").forEach(b => b.classList.toggle("active", b.dataset.view===view));
+    if (view === "daily") renderDaily();
+    window.scrollTo(0,0);
+  }
+  $$(".nav-btn").forEach(b => b.onclick = () => go(b.dataset.view));
+
+  /* --------------------- Export / Import ----------------------------- */
+  $("#exportBtn").onclick = () => {
+    const blob = new Blob([JSON.stringify(DB,null,2)], {type:"application/json"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `life-os-backup-${todayStr()}.json`; a.click();
+    toast("Exported ✓");
+  };
+  $("#importBtn").onclick = () => $("#importFile").click();
+  $("#importFile").onchange = (ev) => {
+    const file = ev.target.files[0]; if (!file) return;
+    const r = new FileReader();
+    r.onload = () => { try {
+      const data = JSON.parse(r.result);
+      if (typeof data==="object") { DB = {...DB, ...data}; save(DB); renderAll(); toast("Imported ✓"); }
+    } catch { toast("Invalid file"); } };
+    r.readAsText(file);
+  };
+
+  /* ----------------------------- Boot -------------------------------- */
+  window.LOS = { go };
+  renderAll();
+  go("dashboard");
+})();
