@@ -28,6 +28,24 @@ All data is saved in your browser on this device only (nothing goes to the inter
 - **Never shames you.** Scrolling is treated as a tiredness signal, not laziness.
 - If ACCA slips a few days, it *gently* points back to the long-term goal.
 
+## Real AI Coach (free)
+
+The **AI Coach** tab has two layers:
+1. **Instant pattern checks** — offline, rule-based, always on. No key needed.
+2. **Real AI Coach** — a live LLM that reads your last 14 days + averages and chats with you
+   in your own language, following your coaching philosophy.
+
+### Turn it on
+1. Get a **free** API key (recommended: **Google Gemini** — free, no card needed):
+   - Gemini → https://aistudio.google.com/app/apikey  (sign in with Google → *Create API key*)
+   - or Groq → https://console.groq.com/keys
+   - or OpenRouter → https://openrouter.ai/keys
+2. Open the app → **AI Coach** tab → paste the key → **Save & activate**.
+3. Ask anything, or hit **🧠 Coach me on today** / **📋 Plan my tomorrow**.
+
+Your key is stored **only in your browser** (localStorage). It is never uploaded and is
+listed in `.gitignore` — it can never be committed to GitHub.
+
 ## Customising
 
 Open `config.js` to change targets, priorities, balance-score weights, or coach thresholds —
