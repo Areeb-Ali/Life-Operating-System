@@ -336,18 +336,28 @@
   }
 
   /* ---------- Daily Input ---------- */
+  // Hours + Minutes input pair. Stored internally as decimal hours.
+  const splitHM = (v) => { const t = +v || 0; return { h: Math.floor(t), m: Math.round((t - Math.floor(t)) * 60) }; };
+  const minOpts = (sel) => [0,5,10,15,20,25,30,35,40,45,50,55]
+    .map(m => `<option value="${m}" ${m===sel?"selected":""}>${m} min</option>`).join("");
+  const hmInput = (id, val) => { const { h, m } = splitHM(val);
+    return `<div class="hm-wrap">
+      <input type="number" min="0" max="24" id="${id}_h" value="${val!=null&&val!==""?h:""}" placeholder="0" /><span class="hm-x">h</span>
+      <select id="${id}_m">${minOpts(m)}</select>
+    </div>`; };
+
   function renderDaily() {
     const el = $("#view-daily");
     const d = DB[todayStr()] || {};
     const actFields = CFG.activities.map(a => `
       <div class="field">
         <label>${a.icon} ${a.label}</label>
-        <input type="number" step="0.25" min="0" max="24" id="f_${a.key}" value="${d[a.key]??""}" placeholder="hours" />
+        ${hmInput("f_"+a.key, d[a.key])}
       </div>`).join("");
     const entFields = CFG.entertainment.map(a => `
       <div class="field">
         <label>${a.icon} ${a.label}</label>
-        <input type="number" step="0.25" min="0" max="24" id="e_${a.key}" value="${d.ent?.[a.key]??""}" placeholder="hours" />
+        ${hmInput("e_"+a.key, d.ent?.[a.key])}
       </div>`).join("");
 
     el.innerHTML = `
@@ -362,14 +372,14 @@
             <input type="date" id="f_date" value="${todayStr()}" />
           </div>
           <div class="field">
-            <label>😴 Sleep (hours)</label>
-            <input type="number" step="0.25" min="0" max="24" id="f_sleep" value="${d.sleep??""}" placeholder="e.g. 8" />
+            <label>😴 Sleep</label>
+            ${hmInput("f_sleep", d.sleep)}
           </div>
 
-          <div class="section-label">Productive & life activities (hours)</div>
+          <div class="section-label">Productive & life activities — enter hours & minutes</div>
           ${actFields}
 
-          <div class="section-label">Entertainment (hours)</div>
+          <div class="section-label">Entertainment — hours & minutes</div>
           ${entFields}
 
           <div class="section-label">How you felt</div>
@@ -401,14 +411,17 @@
         </div>
       </div>`;
 
+    // read an hours+minutes pair back into decimal hours
+    const readHM = (id) => (+($("#"+id+"_h")?.value) || 0) + (+($("#"+id+"_m")?.value) || 0) / 60;
+
     $("#saveBtn").onclick = () => {
       const date = $("#f_date").value || todayStr();
-      const entry = { date, sleep:+$("#f_sleep").value||0,
+      const entry = { date, sleep: readHM("f_sleep"),
         mood:+$("#f_mood").value, energy:+$("#f_energy").value,
         notes:$("#f_notes").value.trim(), ent:{},
         reflect:{ win:$("#r_win").value.trim(), slow:$("#r_slow").value.trim(), next:$("#r_next").value.trim() } };
-      CFG.activities.forEach(a => entry[a.key] = +$("#f_"+a.key).value||0);
-      CFG.entertainment.forEach(a => entry.ent[a.key] = +$("#e_"+a.key).value||0);
+      CFG.activities.forEach(a => entry[a.key] = readHM("f_"+a.key));
+      CFG.entertainment.forEach(a => entry.ent[a.key] = readHM("e_"+a.key));
       DB[date] = entry; save(DB);
       toast("Saved ✓  Coach updated.");
       renderAll(); go("dashboard");

@@ -120,6 +120,11 @@ body {
 .field-full { grid-column: 1 / -1; }
 .section-label { grid-column: 1/-1; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--faint); margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 14px; }
 
+.hm-wrap { display: flex; align-items: center; gap: 8px; }
+.hm-wrap input[type=number] { width: 74px; text-align: center; }
+.hm-wrap select { flex: 1; min-width: 90px; }
+.hm-wrap .hm-x { color: var(--muted); font-size: 13px; font-weight: 600; margin-left: -2px; }
+
 .range-wrap { display: flex; align-items: center; gap: 12px; }
 .range-wrap input[type=range]{ flex:1; accent-color: var(--accent); }
 .range-val { min-width: 28px; text-align: center; font-weight: 700; font-size: 16px; }
