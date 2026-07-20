@@ -223,6 +223,16 @@
     return best;
   };
   const consecutiveStudyDays = () => longestStreak(e => (+e.study||0) > 0);
+  // ongoing streak: consecutive days (ending at the most recent entry) where pred holds
+  const currentStreak = (pred) => {
+    const rows = entArr(); if (!rows.length) return 0;
+    let streak = 0, expected = rows[rows.length - 1].date;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      if (rows[i].date !== expected || !pred(rows[i])) break;
+      streak++; expected = addDays(expected, -1);
+    }
+    return streak;
+  };
 
   const achievements = () => {
     const rows       = entArr();
@@ -235,6 +245,7 @@
     const exerStreak  = longestStreak(e => (+e.exercise||0) > 0);
     const moodStreak  = longestStreak(e => (+e.mood||0) >= 8);
     const lightEntStreak = longestStreak(e => entertainmentHours(e) <= CFG.targets.entertainment);
+    const scoreStreak = longestStreak(e => balanceScore(e) >= 70);
     const bestDay    = Math.max(0, ...rows.map(productiveHours));
     const bestBal    = Math.max(0, ...rows.map(balanceScore));
     const avg7       = avgOver(productiveHours, 7);
@@ -292,6 +303,12 @@
       once("🌟","7-Day Avg Above 6h", days>=7 && avg7 > 6,  "🌟 Consistency"),
       once("💫","7-Day Avg Above 8h", days>=7 && avg7 > 8,  "🌟 Consistency"),
       once("🌈","30-Day Avg Above 6h",days>=30 && avg30 > 6,"🌟 Consistency"),
+
+      // 🎯 Balance-Score streaks — a 70+ Life Balance Score on consecutive days
+      flag("🎯","70+ Score · 3 Days",  scoreStreak, 3,  "days","🎯 Score Streaks (70+/day)"),
+      flag("🎯","70+ Score · 7 Days",  scoreStreak, 7,  "days","🎯 Score Streaks (70+/day)"),
+      flag("🏅","70+ Score · 15 Days", scoreStreak, 15, "days","🎯 Score Streaks (70+/day)"),
+      flag("🏆","70+ Score · 30 Days", scoreStreak, 30, "days","🎯 Score Streaks (70+/day)"),
 
       // 🧘 Balance & wellbeing
       flag("😄","7-Day Good-Mood Streak (8+)", moodStreak, 7, "days","🧘 Balance & Wellbeing"),
@@ -704,9 +721,31 @@
     const r = new FileReader();
     r.onload = () => { try {
       const data = JSON.parse(r.result);
-      if (typeof data==="object") { DB = {...DB, ...data}; save(DB); renderAll(); toast("Imported ✓"); }
+      if (!data || typeof data !== "object") { toast("Invalid file"); return; }
+      const incoming = Object.keys(data).length;
+      const existing = Object.keys(DB).length;
+      // REPLACE by default (safe). Only offer merge when there is existing data.
+      let mode = "replace";
+      if (existing > 0) {
+        mode = confirm(
+          `Import ${incoming} day(s) from this file.\n\n` +
+          `• OK  = REPLACE — wipe the current ${existing} day(s) and use only the file.\n` +
+          `• Cancel = MERGE — keep current days and add/overwrite from the file.`
+        ) ? "replace" : "merge";
+      }
+      DB = mode === "replace" ? { ...data } : { ...DB, ...data };
+      save(DB); renderAll(); go("history");
+      toast(`Imported ✓ (${mode})`);
     } catch { toast("Invalid file"); } };
     r.readAsText(file);
+    ev.target.value = ""; // allow re-importing the same file
+  };
+  $("#resetBtn").onclick = () => {
+    const n = Object.keys(DB).length;
+    if (!n) { toast("No data to clear"); return; }
+    if (confirm(`Delete ALL ${n} logged day(s) from this browser? This cannot be undone.\n\nTip: Export a backup first if unsure.`)) {
+      DB = {}; save(DB); renderAll(); go("dashboard"); toast("All data cleared");
+    }
   };
 
   /* --------- Build a compact context string for the real AI ---------- */
@@ -724,12 +763,13 @@
 
     // ---- Achievements summary for the coach to use as motivation ----
     const achs = achievements();
-    const streak = consecutiveStudyDays();
+    const curStreak = currentStreak(e => (+e.study||0) > 0);
+    const bestStreak = consecutiveStudyDays();
     const done = achs.filter(a => a.unlocked);
     const near = achs.filter(a => !a.unlocked)
       .map(a => ({ ...a, ratio: a.cur / a.goal }))
       .sort((x, y) => y.ratio - x.ratio).slice(0, 6);
-    const achText = `Current ACCA study streak: ${streak} day(s). Unlocked ${done.length}/${achs.length} achievements.
+    const achText = `ACCA study streak — ongoing/current: ${curStreak} day(s); best-ever: ${bestStreak} day(s). Unlocked ${done.length}/${achs.length} achievements.
 Recently earned: ${done.slice(-5).map(a => a.name).join(", ") || "none yet"}.
 CLOSEST locked achievements (encourage these): ${near.map(a => `${a.name} (${round1(a.cur)}/${a.goal}${a.unit})`).join("; ") || "all unlocked!"}.`;
 
