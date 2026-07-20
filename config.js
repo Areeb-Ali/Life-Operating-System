@@ -7,13 +7,14 @@ window.LOS_CONFIG = {
   // ---- The activities you track each day (hours) ----------------------
   // key must be unique. `productive:true` counts toward Productive Hours.
   activities: [
-    { key: "study",      label: "Study (ACCA)",   productive: true,  icon: "📚" },
-    { key: "job",        label: "Current Job",    productive: true,  icon: "💼" },
-    { key: "jobUpgrade", label: "Job Upgrade / Applications", productive: true, icon: "📈" },
-    { key: "bots",       label: "Bot Building",   productive: true,  icon: "🤖" },
-    { key: "reading",    label: "Book Reading",   productive: true,  icon: "📖" },
-    { key: "exercise",   label: "Exercise",       productive: true,  icon: "🏃" },
-    { key: "family",     label: "Family Time",    productive: false, icon: "👨‍👩‍👧" },
+    { key: "study",      label: "Study (ACCA)",              productive: true,  icon: "📚" },
+    { key: "job",        label: "Current Job (day job)",     productive: true,  icon: "💼" },
+    { key: "jobUpgrade", label: "Job Upgrade (new-job hunt)",productive: true,  icon: "📈" },
+    { key: "linkedin",   label: "LinkedIn (networking)",     productive: true,  icon: "🔗" },
+    { key: "bots",       label: "Bot Building",              productive: true,  icon: "🤖" },
+    { key: "reading",    label: "Book Reading",              productive: true,  icon: "📖" },
+    { key: "exercise",   label: "Exercise",                  productive: true,  icon: "🏃" },
+    { key: "family",     label: "Family Time",               productive: false, icon: "👨‍👩‍👧" },
   ],
 
   // ---- Entertainment (tracked separately, treated as "time waste") ----

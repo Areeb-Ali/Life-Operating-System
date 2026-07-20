@@ -17,11 +17,14 @@
   let DB = load(); // { "2026-07-17": {entry}, ... }
 
   /* ----------------------------- Date utils -------------------------- */
+  // All date math is done in UTC so it never drifts by a day across timezones.
   const todayStr = () => new Date().toISOString().slice(0, 10);
-  const fmtDate  = (s) => new Date(s + "T00:00:00").toLocaleDateString("en-GB",
-                    { weekday: "short", day: "numeric", month: "short" });
-  const dayName  = (s) => new Date(s + "T00:00:00").toLocaleDateString("en-US", { weekday: "long" });
-  const addDays  = (s, n) => { const d = new Date(s + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0,10); };
+  const fmtDate  = (s) => new Date(s + "T00:00:00Z").toLocaleDateString("en-GB",
+                    { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  const dayName  = (s) => new Date(s + "T00:00:00Z").toLocaleDateString("en-US", { weekday: "long", timeZone: "UTC" });
+  const addDays  = (s, n) => { const [y,m,d] = s.split("-").map(Number);
+    const dt = new Date(Date.UTC(y, m-1, d)); dt.setUTCDate(dt.getUTCDate() + n);
+    return dt.toISOString().slice(0,10); };
   const round1   = (n) => Math.round(n * 10) / 10;
   const hm = (h) => {                       // 3.5 -> "3h 30m"
     const H = Math.floor(h); const M = Math.round((h - H) * 60);
@@ -209,35 +212,91 @@
   /* ===================================================================
      ACHIEVEMENTS
      =================================================================== */
-  const consecutiveStudyDays = () => {
+  // longest run of consecutive calendar days where pred(entry) is true
+  const longestStreak = (pred) => {
     const rows = entArr(); let best = 0, cur = 0, prev = null;
     for (const e of rows) {
-      const studied = (+e.study||0) > 0;
-      if (studied) {
-        if (prev && addDays(prev,1) === e.date) cur++; else cur = 1;
-        best = Math.max(best, cur); prev = e.date;
-      } else { cur = 0; prev = e.date; }
+      if (pred(e)) { cur = (prev && addDays(prev,1) === e.date) ? cur + 1 : 1; best = Math.max(best, cur); }
+      else cur = 0;
+      prev = e.date;
     }
     return best;
   };
+  const consecutiveStudyDays = () => longestStreak(e => (+e.study||0) > 0);
+
   const achievements = () => {
-    const totalACCA = sumAll(e => +e.study||0);
-    const totalBot  = sumAll(e => +e.bots||0);
-    const streak    = consecutiveStudyDays();
-    const has8  = entArr().some(e => productiveHours(e) >= 8);
-    const has10 = entArr().some(e => productiveHours(e) >= 10);
-    const avg7  = avgOver(productiveHours, 7);
-    const avg7ok = entArr().length >= 7 && avg7 > 6;
+    const rows       = entArr();
+    const totalACCA  = sumAll(e => +e.study||0);
+    const totalBot   = sumAll(e => +e.bots||0);
+    const totalUpg   = sumAll(e => +e.jobUpgrade||0);
+    const totalRead  = sumAll(e => +e.reading||0);
+    const totalExer  = sumAll(e => +e.exercise||0);
+    const studyStreak = longestStreak(e => (+e.study||0) > 0);
+    const exerStreak  = longestStreak(e => (+e.exercise||0) > 0);
+    const moodStreak  = longestStreak(e => (+e.mood||0) >= 8);
+    const lightEntStreak = longestStreak(e => entertainmentHours(e) <= CFG.targets.entertainment);
+    const bestDay    = Math.max(0, ...rows.map(productiveHours));
+    const bestBal    = Math.max(0, ...rows.map(balanceScore));
+    const avg7       = avgOver(productiveHours, 7);
+    const avg30      = avgOver(productiveHours, 30);
+    const days       = rows.length;
+
+    const flag  = (emoji,name,cur,goal,unit,cat) => ({ emoji, name, cur: Math.min(cur,goal), goal, unit, cat, unlocked: cur >= goal });
+    const once  = (emoji,name,ok,cat) => flag(emoji,name, ok?1:0, 1, "", cat);
+
     return [
-      { emoji:"🔥", name:"7 Days ACCA Streak",   cur: Math.min(streak,7),  goal:7,   unit:"days" },
-      { emoji:"📅", name:"30 Days ACCA Streak",  cur: Math.min(streak,30), goal:30,  unit:"days" },
-      { emoji:"💯", name:"100 Hours ACCA",       cur: Math.min(totalACCA,100),  goal:100,  unit:"h" },
-      { emoji:"🎓", name:"500 Hours ACCA",       cur: Math.min(totalACCA,500),  goal:500,  unit:"h" },
-      { emoji:"🤖", name:"100 Hours Bot",        cur: Math.min(totalBot,100),   goal:100,  unit:"h" },
-      { emoji:"⚡", name:"First 8-Hour Day",     cur: has8?1:0,   goal:1, unit:"" },
-      { emoji:"🚀", name:"First 10-Hour Day",    cur: has10?1:0,  goal:1, unit:"" },
-      { emoji:"🌟", name:"7-Day Avg Above 6h",   cur: avg7ok?1:0, goal:1, unit:"" },
-    ].map(a => ({ ...a, unlocked: a.cur >= a.goal }));
+      // 🔥 ACCA streaks — the core motivation ladder (includes the 70+ streak)
+      flag("🔥","3-Day ACCA Streak",  studyStreak, 3,  "days","🔥 ACCA Streaks"),
+      flag("🔥","7-Day ACCA Streak",  studyStreak, 7,  "days","🔥 ACCA Streaks"),
+      flag("🔥","14-Day ACCA Streak", studyStreak, 14, "days","🔥 ACCA Streaks"),
+      flag("📅","30-Day ACCA Streak", studyStreak, 30, "days","🔥 ACCA Streaks"),
+      flag("🗓️","50-Day ACCA Streak", studyStreak, 50, "days","🔥 ACCA Streaks"),
+      flag("👑","70-Day ACCA Streak", studyStreak, 70, "days","🔥 ACCA Streaks"),
+      flag("💎","100-Day ACCA Streak",studyStreak, 100,"days","🔥 ACCA Streaks"),
+
+      // 📚 ACCA hours
+      flag("📗","25 Hours ACCA",   totalACCA, 25,  "h","📚 ACCA Hours"),
+      flag("📘","50 Hours ACCA",   totalACCA, 50,  "h","📚 ACCA Hours"),
+      flag("💯","100 Hours ACCA",  totalACCA, 100, "h","📚 ACCA Hours"),
+      flag("📚","250 Hours ACCA",  totalACCA, 250, "h","📚 ACCA Hours"),
+      flag("🎓","500 Hours ACCA",  totalACCA, 500, "h","📚 ACCA Hours"),
+      flag("🏆","1000 Hours ACCA", totalACCA, 1000,"h","📚 ACCA Hours"),
+
+      // 💼 Career (Job Upgrade kept separate from day job)
+      flag("📈","10 Hours Job-Upgrade",  totalUpg, 10,  "h","💼 Career (Job Upgrade)"),
+      flag("📈","25 Hours Job-Upgrade",  totalUpg, 25,  "h","💼 Career (Job Upgrade)"),
+      flag("🚀","50 Hours Job-Upgrade",  totalUpg, 50,  "h","💼 Career (Job Upgrade)"),
+      flag("🌠","100 Hours Job-Upgrade", totalUpg, 100, "h","💼 Career (Job Upgrade)"),
+
+      // 🤖 Bots
+      flag("🔧","25 Hours Bot",  totalBot, 25,  "h","🤖 Bots"),
+      flag("🤖","100 Hours Bot", totalBot, 100, "h","🤖 Bots"),
+      flag("🦾","250 Hours Bot", totalBot, 250, "h","🤖 Bots"),
+
+      // 📖 Reading & Health
+      flag("📖","10 Hours Reading",   totalRead, 10, "h","📖 Reading & Health"),
+      flag("📕","50 Hours Reading",   totalRead, 50, "h","📖 Reading & Health"),
+      flag("💪","7-Day Exercise Streak", exerStreak, 7, "days","📖 Reading & Health"),
+      flag("🏃","25 Hours Exercise",  totalExer, 25, "h","📖 Reading & Health"),
+
+      // ⚡ Big days
+      once("⚡","First 8-Hour Day",  bestDay >= 8,  "⚡ Big Days"),
+      once("🚀","First 10-Hour Day", bestDay >= 10, "⚡ Big Days"),
+      once("🔥","First 12-Hour Day", bestDay >= 12, "⚡ Big Days"),
+      once("⚖️","A 90+ Balance Day", bestBal >= 90, "⚡ Big Days"),
+
+      // 🌟 Consistency & momentum
+      flag("✅","7 Days Logged",   days, 7,   "days","🌟 Consistency"),
+      flag("📓","30 Days Logged",  days, 30,  "days","🌟 Consistency"),
+      flag("📚","100 Days Logged", days, 100, "days","🌟 Consistency"),
+      once("🌟","7-Day Avg Above 6h", days>=7 && avg7 > 6,  "🌟 Consistency"),
+      once("💫","7-Day Avg Above 8h", days>=7 && avg7 > 8,  "🌟 Consistency"),
+      once("🌈","30-Day Avg Above 6h",days>=30 && avg30 > 6,"🌟 Consistency"),
+
+      // 🧘 Balance & wellbeing
+      flag("😄","7-Day Good-Mood Streak (8+)", moodStreak, 7, "days","🧘 Balance & Wellbeing"),
+      flag("🧘","7 Days Low-Entertainment",   lightEntStreak, 7, "days","🧘 Balance & Wellbeing"),
+    ];
   };
 
   /* ===================================================================
@@ -560,21 +619,27 @@
     const el = $("#view-achievements");
     const list = achievements();
     const unlocked = list.filter(a=>a.unlocked).length;
+    // group by category, preserving first-seen order
+    const cats = [];
+    list.forEach(a => { let g = cats.find(c => c.name === a.cat);
+      if (!g) { g = { name: a.cat, items: [] }; cats.push(g); } g.items.push(a); });
+    const card = (a) => `
+      <div class="ach ${a.unlocked?'unlocked':''}">
+        ${a.unlocked?'<div class="abadge">✓ done</div>':''}
+        <div class="amoji">${a.emoji}</div>
+        <div class="aname">${a.name}</div>
+        <div class="aprog">${a.goal>1 ? `${round1(a.cur)} / ${a.goal}${a.unit}` : (a.unlocked?'Unlocked':'Locked')}</div>
+        ${a.goal>1?`<div class="bar ${a.unlocked?'green':''}" style="margin-top:8px"><i style="width:${Math.min(100,(a.cur/a.goal)*100)}%"></i></div>`:''}
+      </div>`;
     el.innerHTML = `
       <div class="page-head">
         <div class="page-title">Achievements</div>
-        <div class="page-sub">${unlocked} of ${list.length} unlocked · progress over streaks — a missed day never resets your total hours.</div>
+        <div class="page-sub">${unlocked} of ${list.length} unlocked · progress over streaks — a missed day never resets your total hours. Your coach can see these and will cheer you on.</div>
       </div>
-      <div class="ach-grid">
-        ${list.map(a=>`
-          <div class="ach ${a.unlocked?'unlocked':''}">
-            ${a.unlocked?'<div class="abadge">✓ done</div>':''}
-            <div class="amoji">${a.emoji}</div>
-            <div class="aname">${a.name}</div>
-            <div class="aprog">${a.goal>1 ? `${round1(a.cur)} / ${a.goal}${a.unit}` : (a.unlocked?'Unlocked':'Locked')}</div>
-            ${a.goal>1?`<div class="bar" style="margin-top:8px"><i style="width:${Math.min(100,(a.cur/a.goal)*100)}%"></i></div>`:''}
-          </div>`).join("")}
-      </div>`;
+      ${cats.map(c => `
+        <h3 style="color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:22px 0 12px">${c.name}
+          <span style="color:var(--faint)">· ${c.items.filter(i=>i.unlocked).length}/${c.items.length}</span></h3>
+        <div class="ach-grid">${c.items.map(card).join("")}</div>`).join("")}`;
   }
 
   /* ---------- History ---------- */
@@ -648,7 +713,7 @@
   function buildAIContext() {
     const rows = entArr();
     const today = DB[todayStr()];
-    const line = (e) => `${e.date} (${dayName(e.date).slice(0,3)}): ACCA ${round1(+e.study||0)}h, Job ${round1(+e.job||0)}h, JobUpgrade ${round1(+e.jobUpgrade||0)}h, Bots ${round1(+e.bots||0)}h, Reading ${round1(+e.reading||0)}h, Exercise ${round1(+e.exercise||0)}h, Instagram ${round1(+(e.ent?.instagram)||0)}h, Games ${round1(+(e.ent?.games)||0)}h, Netflix/YT ${round1(+(e.ent?.media)||0)}h, Sleep ${round1(+e.sleep||0)}h, Mood ${e.mood||"-"}/10, Energy ${e.energy||"-"}/10${e.notes?`, Note: "${e.notes}"`:""}`;
+    const line = (e) => `${e.date} (${dayName(e.date).slice(0,3)}): ACCA ${round1(+e.study||0)}h, CurrentJob(day-job) ${round1(+e.job||0)}h, JobUpgrade(new-job hunt) ${round1(+e.jobUpgrade||0)}h, LinkedIn ${round1(+e.linkedin||0)}h, Bots ${round1(+e.bots||0)}h, Reading ${round1(+e.reading||0)}h, Exercise ${round1(+e.exercise||0)}h, Instagram ${round1(+(e.ent?.instagram)||0)}h, Games ${round1(+(e.ent?.games)||0)}h, Netflix/YT ${round1(+(e.ent?.media)||0)}h, Sleep ${round1(+e.sleep||0)}h, Mood ${e.mood||"-"}/10, Energy ${e.energy||"-"}/10${e.notes?`, Note: "${e.notes}"`:""}`;
     const recent = rows.slice(-14).map(line).join("\n");
     const avgs = `Rolling averages —
   Last 7 days: Productive ${round1(avgOver(productiveHours,7))}h/day, ACCA ${round1(avgOver(e=>+e.study||0,7))}h/day, Bots ${round1(avgOver(e=>+e.bots||0,7))}h/day, Job ${round1(avgOver(e=>+e.job||0,7))}h/day, Entertainment ${round1(avgOver(entertainmentHours,7))}h/day, Sleep ${round1(avgOver(e=>+e.sleep||0,7))}h/day.
@@ -656,11 +721,27 @@
     const totals = `Lifetime totals — ACCA ${round1(sumAll(e=>+e.study||0))}h, Bots ${round1(sumAll(e=>+e.bots||0))}h, days logged ${rows.length}.`;
     const ruleNotes = coachMessages().map(m => `- ${m.title}`).join("\n");
     const T = CFG.targets;
-    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), Job ${T.job}h, Bots ${T.bots}h, Exercise ${T.exercise}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
+
+    // ---- Achievements summary for the coach to use as motivation ----
+    const achs = achievements();
+    const streak = consecutiveStudyDays();
+    const done = achs.filter(a => a.unlocked);
+    const near = achs.filter(a => !a.unlocked)
+      .map(a => ({ ...a, ratio: a.cur / a.goal }))
+      .sort((x, y) => y.ratio - x.ratio).slice(0, 6);
+    const achText = `Current ACCA study streak: ${streak} day(s). Unlocked ${done.length}/${achs.length} achievements.
+Recently earned: ${done.slice(-5).map(a => a.name).join(", ") || "none yet"}.
+CLOSEST locked achievements (encourage these): ${near.map(a => `${a.name} (${round1(a.cur)}/${a.goal}${a.unit})`).join("; ") || "all unlocked!"}.`;
+
+    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), CurrentJob ${T.job}h, JobUpgrade ${T.jobUpgrade}h, Bots ${T.bots}h, Exercise ${T.exercise}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
 PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.
+IMPORTANT — these are DIFFERENT and must never be merged: "Current Job" = the existing day-job the user already has (priority #2). "Job Upgrade" = time spent hunting/applying/interviewing/upskilling for a BETTER job (priority #3). "LinkedIn" = networking, tracked separately.
 
 ${totals}
 ${avgs}
+
+ACHIEVEMENTS:
+${achText}
 
 RECENT DAYS (most recent last):
 ${recent || "No data logged yet."}
