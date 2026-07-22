@@ -7,14 +7,14 @@ window.LOS_CONFIG = {
   // ---- The activities you track each day (hours) ----------------------
   // key must be unique. `productive:true` counts toward Productive Hours.
   activities: [
-    { key: "study",      label: "Study (ACCA)",              productive: true,  icon: "📚" },
-    { key: "job",        label: "Current Job (day job)",     productive: true,  icon: "💼" },
-    { key: "jobUpgrade", label: "Job Upgrade (new-job hunt)",productive: true,  icon: "📈" },
-    { key: "linkedin",   label: "LinkedIn (networking)",     productive: true,  icon: "🔗" },
-    { key: "bots",       label: "Bot Building",              productive: true,  icon: "🤖" },
-    { key: "reading",    label: "Book Reading",              productive: true,  icon: "📖" },
-    { key: "exercise",   label: "Exercise",                  productive: true,  icon: "🏃" },
-    { key: "family",     label: "Family Time",               productive: false, icon: "👨‍👩‍👧" },
+    { key: "study",      label: "Study (ACCA)",               productive: true,  icon: "📚" },
+    { key: "job",        label: "Current Job (day job)",      productive: true,  icon: "💼" },
+    { key: "jobUpgrade", label: "Job Upgrade (new-job hunt)", productive: true,  icon: "📈" },
+    { key: "linkedin",   label: "LinkedIn (posting & brand)", productive: true,  icon: "🔗" },
+    { key: "bots",       label: "Bot Building",               productive: true,  icon: "🤖" },
+    { key: "exercise",   label: "Exercise",                   productive: true,  icon: "🏃" },
+    { key: "reading",    label: "Book Reading",               productive: true,  icon: "📖" },
+    { key: "family",     label: "Family Time",                productive: false, icon: "👨‍👩‍👧" },
   ],
 
   // ---- Entertainment (tracked separately, treated as "time waste") ----
@@ -26,18 +26,21 @@ window.LOS_CONFIG = {
 
   // ---- Your priority order (1 = most important) -----------------------
   // Highest priority first. Drives the priority check AND the balance score.
-  priorities: ["study", "job", "bots", "jobUpgrade", "linkedin", "exercise", "reading", "family"],
+  // LinkedIn sits high on purpose: it is POSTING/brand-building (funding for bots,
+  // visibility for jobs) — high leverage for very little time. It is not scrolling.
+  priorities: ["study", "job", "jobUpgrade", "linkedin", "bots", "exercise", "reading", "family"],
 
   // ---- Daily targets (hours) used for goals & balance score ----------
   // A target is "what a full-marks day looks like" for that activity.
+  // Kept REALISTIC on purpose: an unreachable target makes the score demotivating.
   targets: {
     study: 4,          // ACCA — your #1 priority
-    job: 6,
-    bots: 2,
+    job: 2,            // 25k PKR job — 2h is all it deserves, not 6h
     jobUpgrade: 1,
-    linkedin: 0.5,
-    exercise: 0.75,    // 45 min
-    reading: 0.5,
+    linkedin: 0.5,     // 30 min of posting/engaging, not feed-scrolling
+    bots: 2,
+    exercise: 0.5,     // 30 min FLOOR — fuel for everything above, never zero
+    reading: 0.33,     // 20 min
     family: 1,
     entertainment: 2,  // max recommended total per day
     sleepMin: 8,
@@ -49,14 +52,14 @@ window.LOS_CONFIG = {
   // Keys must match the activity keys above (plus sleep & mood). Must total 100.
   balanceWeights: {
     study:      25,   // 1. ACCA
-    job:        18,   // 2. Current Job
-    bots:       13,   // 3. Bots
-    jobUpgrade: 10,   // 4. Job Upgrade
-    linkedin:    7,   // 5. LinkedIn
-    exercise:    6,   // 6. Exercise
+    job:        15,   // 2. Current Job
+    jobUpgrade: 12,   // 3. Job Upgrade
+    linkedin:   10,   // 4. LinkedIn (posting/brand)
+    bots:        9,   // 5. Bots
+    exercise:    7,   // 6. Exercise
     reading:     5,   // 7. Book Reading
     family:      4,   // 8. Family Time
-    sleep:       7,   // health baseline
+    sleep:       8,   // health baseline
     mood:        5,   // how the day actually felt
   },
 
