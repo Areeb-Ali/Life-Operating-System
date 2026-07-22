@@ -54,25 +54,34 @@
   /* ===================================================================
      LIFE BALANCE SCORE (out of 100)
      =================================================================== */
+  // Generic over CFG.balanceWeights: every key is an activity key (scored against
+  // its daily target), except `sleep` (optimal window) and `mood` (out of 10).
+  // Because scores are computed live from the logged hours, changing the weights
+  // in config.js automatically re-scores ALL past days too.
   const balanceBreakdown = (e) => {
     const W = CFG.balanceWeights, T = CFG.targets;
-    const cap = (v, max) => Math.max(0, Math.min(1, v)) * max;
-    // sleep: full inside optimal window, penalise deviation
-    let sleepScore;
-    const sl = +e.sleep || 0;
-    if (sl >= T.sleepMin && sl <= T.sleepMax) sleepScore = W.sleep;
-    else { const dev = sl < T.sleepMin ? T.sleepMin - sl : sl - T.sleepMax;
-           sleepScore = Math.max(0, W.sleep * (1 - dev / 3)); }
-    return {
-      sleep:    round1(sleepScore),
-      study:    round1(cap((+e.study||0)   / T.study,      1) * W.study),
-      job:      round1(cap((+e.job||0)      / T.job,        1) * W.job),
-      bot:      round1(cap((+e.bots||0)     / T.bots,       1) * W.bot),
-      exercise: round1(cap((+e.exercise||0) / T.exercise,   1) * W.exercise),
-      mood:     round1(((+e.mood||0) / 10) * W.mood),
-    };
+    const out = {};
+    for (const [key, max] of Object.entries(W)) {
+      if (key === "sleep") {
+        const sl = +e.sleep || 0;
+        if (sl >= T.sleepMin && sl <= T.sleepMax) out.sleep = round1(max);
+        else { const dev = sl < T.sleepMin ? T.sleepMin - sl : sl - T.sleepMax;
+               out.sleep = round1(Math.max(0, max * (1 - dev / 3))); }
+      } else if (key === "mood") {
+        out.mood = round1(((+e.mood || 0) / 10) * max);
+      } else {
+        const target = T[key] || 1;
+        out[key] = round1(Math.max(0, Math.min(1, (+e[key] || 0) / target)) * max);
+      }
+    }
+    return out;
   };
   const balanceScore = (e) => Object.values(balanceBreakdown(e)).reduce((a,b)=>a+b,0);
+  // label + max points for each balance component, in priority order
+  const balanceParts = () => Object.entries(CFG.balanceWeights).map(([key, max]) => {
+    const act = CFG.activities.find(a => a.key === key);
+    return { key, max, label: act ? act.label : (key === "sleep" ? "Sleep" : "Mood") };
+  });
 
   /* ===================================================================
      PRIORITY CHECK  (uses CFG.priorities order)
@@ -176,7 +185,7 @@
       const bots = +today.bots || 0, study = +today.study || 0;
       if (bots > study && bots >= 2) {
         out.push({ type:"warn", icon:"🤖", title:"Bots beat ACCA today",
-          text:`${hm(bots)} on bots vs ${hm(study)} on ACCA. Building bots is genuinely valuable and I know you love it — but it's priority #4, and it's the thing most likely to quietly crowd out your #1. Keep the joy, just cap it so ACCA goes first tomorrow.` });
+          text:`${hm(bots)} on bots vs ${hm(study)} on ACCA. Building bots is genuinely valuable and I know you love it — but it's priority #${CFG.priorities.indexOf("bots")+1}, and it's the thing most likely to quietly crowd out your #1. Keep the joy, just cap it so ACCA goes first tomorrow.` });
       }
     }
     const botAvg7 = avgOver(e => +e.bots||0, 7), studyAvg7 = avgOver(e => +e.study||0, 7);
@@ -332,6 +341,40 @@
       ${delta ? `<div class="delta ${delta.cls}">${delta.txt}</div>` : ""}
     </div>`;
 
+  /* Balance-score breakdown: shows exactly where today's points came from and
+     what is still on the table — this is what you need to reach 70+. */
+  function balanceCard(e) {
+    if (!e) return `<div class="card" style="grid-column:1/-1">
+      <h3>⚖️ Life Balance Score</h3>
+      <div class="empty">Log today to see your score breakdown.</div></div>`;
+    const bd = balanceBreakdown(e), total = balanceScore(e);
+    const parts = balanceParts().map(p => ({ ...p, got: bd[p.key] || 0 }));
+    const missing = parts.filter(p => p.max - p.got >= 1)
+      .sort((a,b) => (b.max-b.got) - (a.max-a.got));
+    const cls = total >= 70 ? "green" : total >= 50 ? "amber" : "red";
+    return `<div class="card" style="grid-column:1/-1">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">⚖️ Life Balance Score — where your points came from</h3>
+        <div><span class="score-big">${Math.round(total)}</span><span style="color:var(--muted)">/100</span></div>
+      </div>
+      <div class="bar ${cls}" style="margin:10px 0 18px"><i style="width:${total}%"></i></div>
+      <div class="mini-grid">
+        ${parts.map(p => `
+          <div class="mini">
+            <div class="ml">${p.label}</div>
+            <div class="mv">${p.got}<span style="font-size:12px;color:var(--muted)">/${p.max}</span></div>
+            <div class="bar ${p.got>=p.max?'green':''}" style="margin-top:6px;height:5px"><i style="width:${(p.got/p.max)*100}%"></i></div>
+          </div>`).join("")}
+      </div>
+      ${total < 70 ? `<div class="callout info" style="margin-top:16px"><div class="ci">🎯</div>
+        <div class="ctext"><div class="ctitle">To reach 70+ you need ${Math.ceil(70-total)} more points</div>
+        Biggest gaps today: ${missing.slice(0,3).map(p=>`<b>${p.label}</b> (+${round1(p.max-p.got)} available)`).join(", ")}.
+        <div class="sub">Points follow your priority order — ACCA is worth the most, so an hour there moves the score more than anywhere else.</div></div></div>`
+      : `<div class="callout good" style="margin-top:16px"><div class="ci">🏆</div>
+        <div class="ctext"><div class="ctitle">70+ day — excellent</div>This is exactly the kind of day that builds your score streaks.</div></div>`}
+    </div>`;
+  }
+
   /* ---------- Dashboard ---------- */
   function renderDashboard() {
     const el = $("#view-dashboard");
@@ -387,6 +430,7 @@
         ${statTile("Sleep Avg (7d)", hm(avgOver(e=>+e.sleep||0,7)), "/day", "😴", null)}
       </div>
       <div class="grid" style="margin-top:16px">${rolling}</div>
+      <div class="grid" style="margin-top:16px">${balanceCard(today)}</div>
 
       <div class="grid cols-2" style="margin-top:16px">
         <div class="card">
@@ -773,8 +817,27 @@
 Recently earned: ${done.slice(-5).map(a => a.name).join(", ") || "none yet"}.
 CLOSEST locked achievements (encourage these): ${near.map(a => `${a.name} (${round1(a.cur)}/${a.goal}${a.unit})`).join("; ") || "all unlocked!"}.`;
 
-    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), CurrentJob ${T.job}h, JobUpgrade ${T.jobUpgrade}h, Bots ${T.bots}h, Exercise ${T.exercise}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
+    // ---- Balance-score model + today's breakdown, so the coach can advise on 70+ ----
+    const partsMax = balanceParts().map(p => `${p.label} max ${p.max}`).join(", ");
+    const scoreModel = `LIFE BALANCE SCORE MODEL (total 100, points follow priority order): ${partsMax}.
+Each activity earns its full points when that day's hours reach its daily target (listed above); partial hours earn proportional points. Sleep earns full points inside ${T.sleepMin}-${T.sleepMax}h. Mood is scored out of 10.`;
+    const todayScore = today ? (() => {
+      const bd = balanceBreakdown(today), tot = balanceScore(today);
+      const detail = balanceParts().map(p => `${p.label} ${bd[p.key]||0}/${p.max}`).join(", ");
+      const gaps = balanceParts().map(p => ({ ...p, left: p.max - (bd[p.key]||0) }))
+        .filter(p => p.left >= 1).sort((a,b) => b.left - a.left).slice(0,4)
+        .map(p => `${p.label} (+${round1(p.left)} available)`).join(", ");
+      return `TODAY'S SCORE: ${Math.round(tot)}/100 — ${detail}.
+Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user needs ${Math.max(0, Math.ceil(70 - tot))} more points.`;
+    })() : "TODAY'S SCORE: not logged yet.";
+    const scoreHistory = rows.slice(-10).map(e => `${e.date}: ${Math.round(balanceScore(e))}`).join(", ");
+
+    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), CurrentJob ${T.job}h, Bots ${T.bots}h, JobUpgrade ${T.jobUpgrade}h, LinkedIn ${T.linkedin}h, Exercise ${T.exercise}h, Reading ${T.reading}h, Family ${T.family}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
 PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.
+
+${scoreModel}
+${todayScore}
+Recent daily scores: ${scoreHistory || "none"}.
 IMPORTANT — these are DIFFERENT and must never be merged: "Current Job" = the existing day-job the user already has (priority #2). "Job Upgrade" = time spent hunting/applying/interviewing/upskilling for a BETTER job (priority #3). "LinkedIn" = networking, tracked separately.
 
 ${totals}

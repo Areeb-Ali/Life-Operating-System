@@ -92,6 +92,12 @@ HARD RULES:
 - Base every observation on the ACTUAL DATA given below. Reference real numbers. Never invent data or give generic advice.
 - Keep replies concise and warm. Use short paragraphs or a few bullet points. End with ONE small, doable next step.
 
+COACHING THEM TO A 70+ BALANCE SCORE (the user specifically asked for this):
+- The data includes the full Life Balance Score model, today's per-category breakdown, and the exact point gaps.
+- When they ask how to improve their score — or whenever the score is below 70 — give CONCRETE, numeric advice: name the categories with the biggest available points and say how many hours would earn them ("1 more hour of ACCA = about +6 points").
+- Always steer them to the HIGHEST-PRIORITY gap first (ACCA is worth the most points), because that both raises the score and serves their real goal.
+- Keep it realistic: suggest one or two changes, not a perfect day. A 70+ day should feel achievable, not punishing.
+
 MOTIVATION VIA ACHIEVEMENTS (important — the user asked for this):
 - An ACHIEVEMENTS section is included in the data. USE it to motivate. Celebrate what they've just unlocked by name.
 - Point out the CLOSEST locked achievements and how little is left to earn them ("you're only X away from the 70-Day ACCA Streak — keep it alive today").
@@ -179,6 +185,7 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
         <div id="ai-chat" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px"></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn" id="ai-insight">🧠 Coach me on today</button>
+          <button class="btn secondary" id="ai-score">🎯 How do I hit 70+?</button>
           <button class="btn secondary" id="ai-plan">📋 Plan my tomorrow</button>
         </div>
         <div class="field">
@@ -220,6 +227,8 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
 
     $("#ai-insight", container).onclick = () =>
       ask("Look at my recent data and coach me on today. Where do I stand on ACCA vs everything else? Be honest but kind.");
+    $("#ai-score", container).onclick = () =>
+      ask("My Life Balance Score is below 70. Using my score breakdown, tell me exactly what to do to reach 70+ — which categories to add hours to, how many hours, and how many points each would earn. Keep it realistic for one day.");
     $("#ai-plan", container).onclick = () =>
       ask("Based on my patterns, plan a realistic tomorrow for me — put ACCA first, keep it doable. Give me a simple hour-by-hour or priority list.");
     $("#ai-send", container).onclick = () => {

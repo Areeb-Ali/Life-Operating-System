@@ -25,29 +25,39 @@ window.LOS_CONFIG = {
   ],
 
   // ---- Your priority order (1 = most important) -----------------------
-  priorities: ["study", "job", "jobUpgrade", "bots", "reading"],
+  // Highest priority first. Drives the priority check AND the balance score.
+  priorities: ["study", "job", "bots", "jobUpgrade", "linkedin", "exercise", "reading", "family"],
 
   // ---- Daily targets (hours) used for goals & balance score ----------
+  // A target is "what a full-marks day looks like" for that activity.
   targets: {
     study: 4,          // ACCA — your #1 priority
     job: 6,
-    jobUpgrade: 1,
     bots: 2,
-    reading: 0.5,
+    jobUpgrade: 1,
+    linkedin: 0.5,
     exercise: 0.75,    // 45 min
+    reading: 0.5,
+    family: 1,
     entertainment: 2,  // max recommended total per day
     sleepMin: 8,
     sleepMax: 9,
   },
 
   // ---- Life Balance Score (out of 100) --------------------------------
+  // Points follow your priority order: higher priority = more points.
+  // Keys must match the activity keys above (plus sleep & mood). Must total 100.
   balanceWeights: {
-    sleep: 10,
-    study: 35,
-    job: 20,
-    bot: 15,
-    exercise: 10,
-    mood: 10,
+    study:      25,   // 1. ACCA
+    job:        18,   // 2. Current Job
+    bots:       13,   // 3. Bots
+    jobUpgrade: 10,   // 4. Job Upgrade
+    linkedin:    7,   // 5. LinkedIn
+    exercise:    6,   // 6. Exercise
+    reading:     5,   // 7. Book Reading
+    family:      4,   // 8. Family Time
+    sleep:       7,   // health baseline
+    mood:        5,   // how the day actually felt
   },
 
   // ---- Thresholds the AI Coach reacts to ------------------------------
