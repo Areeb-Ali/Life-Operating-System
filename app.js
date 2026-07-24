@@ -26,9 +26,27 @@
     const dt = new Date(Date.UTC(y, m-1, d)); dt.setUTCDate(dt.getUTCDate() + n);
     return dt.toISOString().slice(0,10); };
   const round1   = (n) => Math.round(n * 10) / 10;
+  const daysBetween = (a, b) => { const p = s => { const [y,m,d] = s.split("-").map(Number); return Date.UTC(y, m-1, d); };
+    return Math.round((p(b) - p(a)) / 86400000); };
   const hm = (h) => {                       // 3.5 -> "3h 30m"
     const H = Math.floor(h); const M = Math.round((h - H) * 60);
     return M ? `${H}h ${M}m` : `${H}h`;
+  };
+
+  /* -------- Daily improvement: targets grow 1%/day (compounding) ------- */
+  const growKeys = new Set(CFG.activities.map(a => a.key)); // only productive activities grow
+  const growthMultiplier = (dateStr) => {
+    const g = CFG.improvement;
+    if (!g || !g.enabled || !g.rate) return 1;
+    const days = Math.max(0, daysBetween(g.startDate, dateStr || todayStr()));
+    let mult = Math.pow(1 + g.rate, days);
+    if (g.maxMultiplier) mult = Math.min(mult, g.maxMultiplier);
+    return mult;
+  };
+  // effective target for an activity on a given date (grows over time; entertainment/sleep flat)
+  const targetFor = (key, dateStr) => {
+    const base = CFG.targets[key] || 0;
+    return growKeys.has(key) ? base * growthMultiplier(dateStr) : base;
   };
 
   /* ----------------------- Derived per-entry ------------------------- */
@@ -70,7 +88,7 @@
       } else if (key === "mood") {
         out.mood = round1(((+e.mood || 0) / 10) * max);
       } else {
-        const target = T[key] || 1;
+        const target = targetFor(key, e.date) || 1;
         out[key] = round1(Math.max(0, Math.min(1, (+e[key] || 0) / target)) * max);
       }
     }
@@ -471,7 +489,7 @@
     const d = DB[todayStr()] || {};
     const actFields = CFG.activities.map(a => `
       <div class="field">
-        <label>${a.icon} ${a.label}</label>
+        <label>${a.icon} ${a.label} <span class="hint" style="margin:0;color:var(--accent)">🎯 ${hm(targetFor(a.key, todayStr()))}</span></label>
         ${hmInput("f_"+a.key, d[a.key])}
       </div>`).join("");
     const entFields = CFG.entertainment.map(a => `
@@ -646,32 +664,41 @@
   /* ---------- Goals ---------- */
   function renderGoals() {
     const el = $("#view-goals");
-    const T = CFG.targets;
-    const goalRow = (label, cur, target, unit="h") => {
+    const goalRow = (label, cur, target, keepUnder=false) => {
+      const hit = keepUnder ? cur <= target : cur >= target;
       const need = target - cur;
-      const cls = cur>=target ? "green" : need > target*0.4 ? "red" : "amber";
+      const cls = hit ? "green" : (keepUnder ? "red" : (need > target*0.4 ? "red" : "amber"));
       const pctv = Math.min(100, (cur/target)*100);
       return `<div class="card">
         <h3>${label}</h3>
         <div class="grid cols-3" style="gap:10px">
-          <div class="mini"><div class="ml">Current</div><div class="mv">${hm(cur)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
-          <div class="mini"><div class="ml">Target</div><div class="mv">${hm(target)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
-          <div class="mini"><div class="ml">${need>0?"Need":"Surplus"}</div><div class="mv ${need>0?'':'up'}">${need>0?`+${Math.round(need*60)}m`:`✓`}</div></div>
+          <div class="mini"><div class="ml">Current (7d avg)</div><div class="mv">${hm(cur)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
+          <div class="mini"><div class="ml">Today's target</div><div class="mv">${hm(target)}<small style="font-size:12px;color:var(--muted)">/day</small></div></div>
+          <div class="mini"><div class="ml">${keepUnder?(hit?"Under":"Over"):(need>0?"Need":"Surplus")}</div><div class="mv ${hit?'up':''}">${keepUnder?(hit?'✓':`${Math.round(-need*60)}m`):(need>0?`+${Math.round(need*60)}m`:`✓`)}</div></div>
         </div>
         <div class="bar ${cls}"><i style="width:${pctv}%"></i></div>
-        <div class="hint">${cur>=target?"Target reached — hold it steady this week 💪":`Just ${Math.round(need*60)} more minutes a day gets you there. Weekly, not overnight.`}</div>
+        <div class="hint">${keepUnder ? (hit?"Nicely under your cap 💪":"Trim this back — the one number you don't want to grow.") : (hit?"Target reached — beat tomorrow's slightly higher one 💪":`Just ${Math.round(need*60)} more minutes a day gets you there.`)}</div>
       </div>`;
     };
+    const mult = growthMultiplier(todayStr());
+    const growthNote = CFG.improvement?.enabled
+      ? `Every target below grows <b>+${(CFG.improvement.rate*100)}%/day</b> (compounding). Today's targets are <b>${mult.toFixed(2)}×</b> the base${CFG.improvement.maxMultiplier && mult>=CFG.improvement.maxMultiplier?" (max reached)":""}. Entertainment never grows.`
+      : "Based on your 7-day rolling averages.";
+    const t = (k) => targetFor(k, todayStr());
     el.innerHTML = `
       <div class="page-head">
-        <div class="page-title">Weekly Goals</div>
-        <div class="page-sub">Based on your 7-day rolling averages. Small daily deltas, sustainable pace.</div>
+        <div class="page-title">Goals — 1% better every day</div>
+        <div class="page-sub">${growthNote}</div>
       </div>
       <div class="grid cols-2">
-        ${goalRow("📚 Study (ACCA)", avgOver(e=>+e.study||0,7), T.study)}
-        ${goalRow("🤖 Bot Building", avgOver(e=>+e.bots||0,7), T.bots)}
-        ${goalRow("🏃 Exercise", avgOver(e=>+e.exercise||0,7), T.exercise)}
-        ${goalRow("📺 Entertainment (keep under)", avgOver(entertainmentHours,7), T.entertainment)}
+        ${goalRow("📚 Study (ACCA)",  avgOver(e=>+e.study||0,7),      t("study"))}
+        ${goalRow("💼 Current Job",   avgOver(e=>+e.job||0,7),        t("job"))}
+        ${goalRow("📈 Job Upgrade",   avgOver(e=>+e.jobUpgrade||0,7), t("jobUpgrade"))}
+        ${goalRow("🔗 LinkedIn",      avgOver(e=>+e.linkedin||0,7),   t("linkedin"))}
+        ${goalRow("🤖 Bot Building",  avgOver(e=>+e.bots||0,7),       t("bots"))}
+        ${goalRow("🏃 Exercise",      avgOver(e=>+e.exercise||0,7),   t("exercise"))}
+        ${goalRow("📖 Book Reading",  avgOver(e=>+e.reading||0,7),    t("reading"))}
+        ${goalRow("📺 Entertainment (keep under)", avgOver(entertainmentHours,7), CFG.targets.entertainment, true)}
       </div>`;
   }
 
@@ -832,8 +859,12 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
     })() : "TODAY'S SCORE: not logged yet.";
     const scoreHistory = rows.slice(-10).map(e => `${e.date}: ${Math.round(balanceScore(e))}`).join(", ");
 
-    return `USER'S DAILY TARGETS: ACCA ${T.study}h (top priority), CurrentJob ${T.job}h, Bots ${T.bots}h, JobUpgrade ${T.jobUpgrade}h, LinkedIn ${T.linkedin}h, Exercise ${T.exercise}h, Reading ${T.reading}h, Family ${T.family}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
-PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.
+    const tt = (k) => round1(targetFor(k, todayStr()));
+    const gInfo = CFG.improvement?.enabled
+      ? `\nDAILY IMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per day (compounding), whether or not yesterday's was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each day; keep suggestions realistic for the CURRENT (grown) target.`
+      : "";
+    return `USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}
 
 ${scoreModel}
 ${todayScore}

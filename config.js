@@ -47,6 +47,19 @@ window.LOS_CONFIG = {
     sleepMax: 9,
   },
 
+  // ---- Daily improvement: targets grow a little every day -------------
+  // Each day your target for every PRODUCTIVE activity is 1% higher than the
+  // day before — whether or not you hit yesterday's. Small, compounding growth.
+  // Entertainment and sleep never grow (you don't want to increase those).
+  improvement: {
+    enabled: true,
+    rate: 0.01,               // +1% per day, compounding
+    startDate: "2026-07-24",  // day the growth clock starts (targets = base here)
+    maxMultiplier: 2.5,       // guardrail: a target never grows past 2.5x its base,
+                              // so it stays humanly possible (reached ~day 92).
+                              // Set to null to remove the cap and grow forever.
+  },
+
   // ---- Life Balance Score (out of 100) --------------------------------
   // Points follow your priority order: higher priority = more points.
   // Keys must match the activity keys above (plus sleep & mood). Must total 100.
