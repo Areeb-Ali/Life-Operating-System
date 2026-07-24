@@ -18,11 +18,14 @@ window.LOS_CONFIG = {
   ],
 
   // ---- Entertainment (tracked separately, treated as "time waste") ----
+  // `rec` = recommended max hours/day. Going over costs Balance Score points
+  // (awareness, not punishment). Entertainment never grows.
   entertainment: [
-    { key: "instagram", label: "Instagram",       icon: "📸" },
-    { key: "games",     label: "Games",           icon: "🎮" },
-    { key: "media",     label: "Netflix / YouTube", icon: "📺" },
+    { key: "instagram", label: "Instagram",         icon: "📸", rec: 0.5 },
+    { key: "games",     label: "Games",             icon: "🎮", rec: 0.5 },
+    { key: "media",     label: "Netflix / YouTube", icon: "📺", rec: 0.75 },
   ],
+  entertainmentPenaltyPerHour: 3.5,   // Balance-Score points lost per hour over `rec`
 
   // ---- Your priority order (1 = most important) -----------------------
   // Highest priority first. Drives the priority check AND the balance score.
@@ -64,6 +67,8 @@ window.LOS_CONFIG = {
   accaGoal: {
     totalHours: 2500,    // total study hours to finish ACCA incl. Foundations
     targetYears: 2.5,    // you want to be done in 2.5 years
+    examDate: "2026-09-08",   // your NEXT ACCA exam — the manager counts down to this
+    currentFocus: "Set your current paper & chapter here (e.g. FR — Chapter 5: Leases)",
   },
 
   // ---- Life Balance Score (out of 100) --------------------------------

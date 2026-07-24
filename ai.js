@@ -73,8 +73,14 @@
   /* --------------------- System prompt (the contract) ---------------- */
   function systemPrompt() {
     const p = window.LOS?.philosophy || {};
-    return `You are the user's personal life coach inside their "Life Operating System" app.
-You speak like a warm, supportive friend and mentor — NOT a strict teacher. Reply in the SAME language/style the user writes in (they often mix English with Roman Urdu/Hindi — match that naturally).
+    return `You are the user's personal life MANAGER inside their "Life Operating System" app — not just a cheerleader. You look at all their data and MAKE THE CALL: you tell them what to do right now, what to skip today, and why. Warm but decisive. Reply in the SAME language/style the user writes in (they often mix English with Roman Urdu/Hindi — match that naturally).
+
+HOW A MANAGER TALKS (this is the whole point — do NOT just say "good job"):
+- Give clear directives, not vague encouragement. Bad: "Great effort, keep going!" Good: "You have ~4 productive hours left. Exam is 46 days away. Skip Bots today. Do Chapter 5 first, then 30 min LinkedIn. Bots can wait."
+- Every decision references the real numbers: hours left, exam countdown, today's score, the priority order.
+- Make trade-offs explicitly: name what to DROP, not only what to add. It's fine to say "LinkedIn can wait", "skip Bots today", "no entertainment until ACCA is done".
+- Lead with the decision, then one line of reasoning. Keep it short and directive. End with the single next action.
+- You are still never harsh or shaming — a good manager is calm, confident, and on their side. Firm, not cruel.
 
 THE USER (do not forget):
 - Their #1 long-term priority is ${p.topPriorityLabel || "ACCA"} (accounting qualification). It outranks everything.
@@ -93,7 +99,14 @@ HARD RULES:
 - If ACCA has been skipped several days, gently remind them of the long-term goal — softly, once, no nagging.
 - "Current Job" (their existing day-job) and "Job Upgrade" (hunting/applying/upskilling for a BETTER job) are TWO DIFFERENT things. NEVER merge or confuse them. LinkedIn networking is tracked separately too.
 - Base every observation on the ACTUAL DATA given below. Reference real numbers. Never invent data or give generic advice.
-- Keep replies concise and warm. Use short paragraphs or a few bullet points. End with ONE small, doable next step.
+- Keep replies concise and directive. Use short paragraphs or a few bullet points. End with ONE clear next action.
+
+EXAM-DRIVEN PLANNING (you are managing toward the ACCA exam):
+- The data includes the ACCA exam countdown and current focus (paper/chapter). Plan every day around it. As the exam gets closer, get more insistent that ACCA comes first and lower-priority things (Bots, extra LinkedIn) get dropped.
+- When the user asks "what should I do now?", give exactly ONE answer: the single next task, how long to spend on it, and one line of why (tie it to the exam / priority / score). No menus, no "you could do X or Y" — decide for them.
+
+ENTERTAINMENT AWARENESS (not punishment):
+- Entertainment over its recommended limit costs Balance-Score points; the penalty is in the data. Mention it plainly as awareness ("YouTube 3h cost you −8 points today — recommended is 45 min"), never as a scolding. The point is a clear, factual mirror, then move on.
 
 COACHING THEM TO A 70+ BALANCE SCORE (the user specifically asked for this):
 - The data includes the full Life Balance Score model, today's per-category breakdown, and the exact point gaps.
@@ -109,8 +122,12 @@ MOTIVATION VIA ACHIEVEMENTS (important — the user asked for this):
 Below is the user's real tracked data. Use it as the single source of truth.`;
   }
 
-  /* ---------------------------- Rendering ---------------------------- */
-  let history = [];   // {role, content} — conversation memory (session only)
+  /* ---------------------------- Memory ------------------------------- */
+  // The manager REMEMBERS: chat history persists in this browser across reloads.
+  const MEM_KEY = "los_ai_history";
+  const loadHistory = () => { try { return JSON.parse(localStorage.getItem(MEM_KEY)) || []; } catch { return []; } };
+  const saveHistory = () => { try { localStorage.setItem(MEM_KEY, JSON.stringify(history.slice(-60))); } catch {} };
+  let history = loadHistory();   // {role, content} — remembered conversation
 
   function mount(container) {
     if (!container) return;
@@ -171,7 +188,6 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
       const apiKey = $("#ai-key", container).value.trim();
       if (!apiKey) { flash(container, "Please paste a key first."); return; }
       setCfg({ provider: prov.value, apiKey, model: modelSel.value });
-      history = [];
       mount(container);
     };
     if (hasKey()) $("#ai-cancel", container).onclick = () => mount(container);
@@ -181,19 +197,23 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
     container.innerHTML = `
       <div class="card" style="border-color:rgba(138,108,255,.4)">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-          <h3 style="margin:0">✨ Real AI Coach — ${PROVIDERS[cfg.provider]?.label || cfg.provider} · <span style="color:var(--muted);font-weight:400">${cfg.model || ""}</span></h3>
-          <button class="ghost-btn" id="ai-settings" style="font-size:11.5px">⚙ change key / model</button>
+          <h3 style="margin:0">🧠 AI Manager — ${PROVIDERS[cfg.provider]?.label || cfg.provider} · <span style="color:var(--muted);font-weight:400">${cfg.model || ""}</span></h3>
+          <div style="display:flex;gap:8px">
+            <button class="ghost-btn" id="ai-forget" style="font-size:11.5px">🧹 clear memory</button>
+            <button class="ghost-btn" id="ai-settings" style="font-size:11.5px">⚙ key / model</button>
+          </div>
         </div>
-        <div class="hint" style="margin-bottom:14px">Uses your last 14 days + averages. Ask anything, or get a full read on where you stand.</div>
+        <div class="hint" style="margin-bottom:14px">Sees your full history, exam countdown &amp; score — and remembers this conversation. It makes the call, not just cheers.</div>
+        <button class="btn" id="ai-decide" style="width:100%;margin-bottom:12px;font-size:15px;padding:14px">⚡ What should I do now?</button>
         <div id="ai-chat" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px"></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-          <button class="btn" id="ai-insight">🧠 Coach me on today</button>
+          <button class="btn secondary" id="ai-insight">🧭 Manage my day</button>
           <button class="btn secondary" id="ai-score">🎯 How do I hit 70+?</button>
           <button class="btn secondary" id="ai-plan">📋 Plan my tomorrow</button>
         </div>
         <div class="field">
           <div style="display:flex;gap:10px">
-            <input type="text" id="ai-input" placeholder="Ask your coach anything…" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 13px;font-size:14px" />
+            <input type="text" id="ai-input" placeholder="Ask your manager anything…" style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:11px 13px;font-size:14px" />
             <button class="btn" id="ai-send">Send</button>
           </div>
         </div>
@@ -222,18 +242,21 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
         const reply = await PROVIDERS[cfg.provider].call(cfg, system, history);
         history.push({ role: "assistant", content: reply });
       } catch (e) {
-        history.push({ role: "assistant", content: "⚠️ Couldn't reach the AI: " + e.message + "\n\n(Check your API key in ⚙ change key, or your internet.)" });
+        history.push({ role: "assistant", content: "⚠️ Couldn't reach the AI: " + e.message + "\n\n(Check your key in ⚙ key / model, or your internet.)" });
       }
+      saveHistory();                 // remember across reloads
       $("#" + loadingId, container)?.remove();
       renderChat();
     }
 
+    $("#ai-decide", container).onclick = () =>
+      ask("Decision time — look at everything (hours left today, exam countdown, my priorities and today's score) and tell me EXACTLY ONE thing to do right now: what, for how long, and one line why. Decide for me — no options, no menu. Then what to skip.");
     $("#ai-insight", container).onclick = () =>
-      ask("Look at my recent data and coach me on today. Where do I stand on ACCA vs everything else? Be honest but kind.");
+      ask("Manage my day. Look at my data and tell me what to prioritise now, what to drop today, and why — like my manager. Be decisive.");
     $("#ai-score", container).onclick = () =>
       ask("My Life Balance Score is below 70. Using my score breakdown, tell me exactly what to do to reach 70+ — which categories to add hours to, how many hours, and how many points each would earn. Keep it realistic for one day.");
     $("#ai-plan", container).onclick = () =>
-      ask("Based on my patterns, plan a realistic tomorrow for me — put ACCA first, keep it doable. Give me a simple hour-by-hour or priority list.");
+      ask("Plan my tomorrow around the ACCA exam. Put ACCA first, decide what to skip, keep it doable. Give me a simple priority list with time blocks.");
     $("#ai-send", container).onclick = () => {
       const v = $("#ai-input", container).value.trim(); if (!v) return;
       $("#ai-input", container).value = ""; ask(v);
@@ -242,6 +265,11 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
       if (e.key === "Enter") { e.preventDefault(); $("#ai-send", container).click(); }
     });
     $("#ai-settings", container).onclick = () => renderSetup(container);
+    $("#ai-forget", container).onclick = () => {
+      if (!history.length || confirm("Clear the manager's memory of this conversation? Your tracked data stays; only the chat is forgotten.")) {
+        history = []; saveHistory(); renderChat();
+      }
+    };
   }
 
   /* ----------------------------- helpers ----------------------------- */

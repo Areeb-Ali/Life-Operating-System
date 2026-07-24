@@ -64,6 +64,19 @@
   const entertainmentHours = (e) => CFG.entertainment
                                     .reduce((s,a) => s + (+(e.ent?.[a.key]) || 0), 0);
 
+  // Entertainment awareness: points lost for going over each item's recommended max.
+  const entertainmentPenalty = (e) => {
+    const per = CFG.entertainmentPenaltyPerHour || 0;
+    const items = CFG.entertainment.map(a => {
+      const used = +(e.ent?.[a.key]) || 0;
+      const rec = a.rec ?? CFG.targets.entertainment ?? 0;
+      const over = Math.max(0, used - rec);
+      return { key: a.key, label: a.label, icon: a.icon, used, rec, over, penalty: round1(over * per) };
+    });
+    const total = round1(items.reduce((s,i) => s + i.penalty, 0));
+    return { total, items };
+  };
+
   // average of a numeric getter over the last N days that HAVE entries
   const avgOver = (getter, days) => {
     const start = addDays(todayStr(), -(days - 1));
@@ -102,7 +115,10 @@
     }
     return out;
   };
-  const balanceScore = (e) => Object.values(balanceBreakdown(e)).reduce((a,b)=>a+b,0);
+  const balanceScore = (e) => {
+    const positive = Object.values(balanceBreakdown(e)).reduce((a,b)=>a+b,0);
+    return Math.max(0, positive - entertainmentPenalty(e).total);   // penalty = awareness
+  };
   // label + max points for each balance component, in priority order
   const balanceParts = () => Object.entries(CFG.balanceWeights).map(([key, max]) => {
     const act = CFG.activities.find(a => a.key === key);
@@ -378,6 +394,14 @@
     const missing = parts.filter(p => p.max - p.got >= 1)
       .sort((a,b) => (b.max-b.got) - (a.max-a.got));
     const cls = total >= 70 ? "green" : total >= 50 ? "amber" : "red";
+    const pen = entertainmentPenalty(e);
+    const overItems = pen.items.filter(i => i.over > 0);
+    const awareness = pen.total > 0 ? `
+      <div class="callout alert" style="margin-top:16px"><div class="ci">📺</div>
+        <div class="ctext"><div class="ctitle">Entertainment cost you −${pen.total} points today</div>
+          ${overItems.map(i => `${i.icon} <b>${i.label}</b>: ${hm(i.used)} watched · recommended ${hm(i.rec)} · <span class="down">−${i.penalty}</span>`).join("<br>")}
+          <div class="sub">This isn't punishment — it's awareness. The time (and the points) are recoverable tomorrow.</div>
+        </div></div>` : "";
     return `<div class="card" style="grid-column:1/-1">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
         <h3 style="margin:0">⚖️ Life Balance Score — where your points came from</h3>
@@ -398,6 +422,7 @@
         <div class="sub">Points follow your priority order — ACCA is worth the most, so an hour there moves the score more than anywhere else.</div></div></div>`
       : `<div class="callout good" style="margin-top:16px"><div class="ci">🏆</div>
         <div class="ctext"><div class="ctitle">70+ day — excellent</div>This is exactly the kind of day that builds your score streaks.</div></div>`}
+      ${awareness}
     </div>`;
   }
 
@@ -438,11 +463,23 @@
 
     const balToday = today ? balanceScore(today) : 0;
 
+    // ACCA exam countdown banner
+    const G = CFG.accaGoal || {};
+    const dte = G.examDate ? daysBetween(todayStr(), G.examDate) : null;
+    const examBanner = (dte != null && dte >= 0) ? `
+      <div class="callout ${dte<=30?'alert':dte<=60?'warn':'info'}" style="margin-bottom:18px">
+        <div class="ci">🎓</div>
+        <div class="ctext"><div class="ctitle">ACCA exam in ${dte} day${dte===1?'':'s'} · ${fmtDate(G.examDate)}</div>
+        Focus: ${G.currentFocus && !/^Set your/.test(G.currentFocus) ? G.currentFocus : `<span style="color:var(--muted)">set your current paper &amp; chapter in config.js</span>`}
+        <div class="sub">Ask the manager below: “What should I do now?”</div></div>
+      </div>` : "";
+
     el.innerHTML = `
       <div class="page-head">
         <div class="page-title">Dashboard</div>
         <div class="page-sub">${today ? "Today's entry is logged ✓" : "No entry yet for today — head to Daily Input"} · ${fmtDate(todayStr())}</div>
       </div>
+      ${examBanner}
       <div class="grid cols-4">
         ${statTile("Today's Productive", today?hm(productiveHours(today)):"—", "", "⚡", null)}
         ${statTile("Last 7 Days Avg", hm(p7), "/day", "📊", deltaTxt(p7,p30))}
@@ -471,11 +508,14 @@
             </div>`).join("") : `<div class="empty">Log today to see your priority check.</div>`}
         </div>
         <div class="card">
-          <h3>🧭 Coach — top note</h3>
+          <h3>🧠 AI Manager</h3>
           ${(() => { const m = coachMessages()[0];
              return `<div class="callout ${m.type}"><div class="ci">${m.icon}</div>
                <div class="ctext"><div class="ctitle">${m.title}</div>${m.text}</div></div>
-               <button class="btn secondary" onclick="LOS.go('coach')">See all coach insights →</button>`; })()}
+               <div style="display:flex;gap:10px;flex-wrap:wrap">
+                 <button class="btn" onclick="LOS.askNow()">⚡ What should I do now?</button>
+                 <button class="btn secondary" onclick="LOS.go('coach')">Open manager →</button>
+               </div>`; })()}
         </div>
       </div>
       <div class="grid" style="margin-top:16px">${spark}</div>`;
@@ -934,7 +974,8 @@
     const rows = entArr();
     const today = DB[todayStr()];
     const line = (e) => `${e.date} (${dayName(e.date).slice(0,3)}): ACCA ${round1(+e.study||0)}h, CurrentJob(day-job) ${round1(+e.job||0)}h, JobUpgrade(new-job hunt) ${round1(+e.jobUpgrade||0)}h, LinkedIn ${round1(+e.linkedin||0)}h, Bots ${round1(+e.bots||0)}h, Reading ${round1(+e.reading||0)}h, Exercise ${round1(+e.exercise||0)}h, Instagram ${round1(+(e.ent?.instagram)||0)}h, Games ${round1(+(e.ent?.games)||0)}h, Netflix/YT ${round1(+(e.ent?.media)||0)}h, Sleep ${round1(+e.sleep||0)}h, Mood ${e.mood||"-"}/10, Energy ${e.energy||"-"}/10${e.notes?`, Note: "${e.notes}"`:""}`;
-    const recent = rows.slice(-14).map(line).join("\n");
+    // AI MEMORY: give the manager the FULL history (up to a year), not just 14 days.
+    const recent = rows.slice(-365).map(line).join("\n");
     const avgs = `Rolling averages —
   Last 7 days: Productive ${round1(avgOver(productiveHours,7))}h/day, ACCA ${round1(avgOver(e=>+e.study||0,7))}h/day, Bots ${round1(avgOver(e=>+e.bots||0,7))}h/day, Job ${round1(avgOver(e=>+e.job||0,7))}h/day, Entertainment ${round1(avgOver(entertainmentHours,7))}h/day, Sleep ${round1(avgOver(e=>+e.sleep||0,7))}h/day.
   Last 30 days: Productive ${round1(avgOver(productiveHours,30))}h/day, ACCA ${round1(avgOver(e=>+e.study||0,30))}h/day.`;
@@ -969,11 +1010,24 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
     })() : "TODAY'S SCORE: not logged yet.";
     const scoreHistory = rows.slice(-10).map(e => `${e.date}: ${Math.round(balanceScore(e))}`).join(", ");
 
+    // ---- ACCA exam countdown + current focus (the manager plans around this) ----
+    const G = CFG.accaGoal || {};
+    const daysToExam = G.examDate ? daysBetween(todayStr(), G.examDate) : null;
+    const accaTotal = round1(sumAll(e => +e.study||0));
+    const examInfo = G.examDate
+      ? `ACCA EXAM COUNTDOWN: ${daysToExam > 0 ? daysToExam + " days" : "PAST/today"} until the next exam (${G.examDate}). Current focus: "${G.currentFocus || "not set"}". ACCA hours logged so far: ${accaTotal}h toward a ${G.totalHours}h goal (target: finish in ${G.targetYears} years).`
+      : "";
+    // ---- Today's entertainment penalty (awareness) ----
+    const penToday = today ? entertainmentPenalty(today) : null;
+    const penInfo = penToday && penToday.total > 0
+      ? `ENTERTAINMENT PENALTY TODAY: −${penToday.total} points. ${penToday.items.filter(i=>i.over>0).map(i=>`${i.label} ${round1(i.used)}h vs rec ${round1(i.rec)}h (−${i.penalty})`).join("; ")}. Frame this as awareness, never punishment.`
+      : "";
+
     const tt = (k) => round1(targetFor(k, todayStr()));
     const gInfo = CFG.improvement?.enabled
       ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
-    return `USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
+    return `${examInfo ? examInfo + "\n\n" : ""}${penInfo ? penInfo + "\n\n" : ""}USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
 PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}
 
 ${scoreModel}
@@ -999,7 +1053,8 @@ TODAY IS: ${todayStr()} (${dayName(todayStr())})${today ? "" : " — NOT logged 
   const PHILOSOPHY = CFG.philosophy;
 
   /* ----------------------------- Boot -------------------------------- */
-  window.LOS = { go, aiContext: buildAIContext, philosophy: PHILOSOPHY, refreshCoach: renderCoach };
+  const askNow = () => { go("coach"); setTimeout(() => document.querySelector("#ai-decide")?.click(), 120); };
+  window.LOS = { go, aiContext: buildAIContext, philosophy: PHILOSOPHY, refreshCoach: renderCoach, askNow };
   window.dispatchEvent(new Event("los-ready"));
   renderAll();
   go("dashboard");
