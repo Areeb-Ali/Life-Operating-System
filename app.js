@@ -64,17 +64,14 @@
   const entertainmentHours = (e) => CFG.entertainment
                                     .reduce((s,a) => s + (+(e.ent?.[a.key]) || 0), 0);
 
-  // Entertainment awareness: points lost for going over each item's recommended max.
+  // Entertainment awareness: points are lost ONLY when the day's TOTAL entertainment
+  // goes over the overall daily cap — not per individual item.
   const entertainmentPenalty = (e) => {
     const per = CFG.entertainmentPenaltyPerHour || 0;
-    const items = CFG.entertainment.map(a => {
-      const used = +(e.ent?.[a.key]) || 0;
-      const rec = a.rec ?? CFG.targets.entertainment ?? 0;
-      const over = Math.max(0, used - rec);
-      return { key: a.key, label: a.label, icon: a.icon, used, rec, over, penalty: round1(over * per) };
-    });
-    const total = round1(items.reduce((s,i) => s + i.penalty, 0));
-    return { total, items };
+    const cap = CFG.targets.entertainment || 0;
+    const used = entertainmentHours(e);
+    const over = Math.max(0, used - cap);
+    return { total: round1(over * per), used: round1(used), cap, over: round1(over) };
   };
 
   // average of a numeric getter over the last N days that HAVE entries
@@ -416,12 +413,11 @@
       .sort((a,b) => (b.max-b.got) - (a.max-a.got));
     const cls = total >= 70 ? "green" : total >= 50 ? "amber" : "red";
     const pen = entertainmentPenalty(e);
-    const overItems = pen.items.filter(i => i.over > 0);
     const awareness = pen.total > 0 ? `
       <div class="callout alert" style="margin-top:16px"><div class="ci">📺</div>
         <div class="ctext"><div class="ctitle">Entertainment cost you −${pen.total} points today</div>
-          ${overItems.map(i => `${i.icon} <b>${i.label}</b>: ${hm(i.used)} watched · recommended ${hm(i.rec)} · <span class="down">−${i.penalty}</span>`).join("<br>")}
-          <div class="sub">This isn't punishment — it's awareness. The time (and the points) are recoverable tomorrow.</div>
+          Total entertainment <b>${hm(pen.used)}</b> · daily cap <b>${hm(pen.cap)}</b> · over by ${hm(pen.over)} → <span class="down">−${pen.total}</span>
+          <div class="sub">This isn't punishment — it's awareness. Only the total over your cap counts; the points are recoverable tomorrow.</div>
         </div></div>` : "";
     return `<div class="card" style="grid-column:1/-1">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
@@ -1040,7 +1036,7 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
     // ---- Today's entertainment penalty (awareness) ----
     const penToday = today ? entertainmentPenalty(today) : null;
     const penInfo = penToday && penToday.total > 0
-      ? `ENTERTAINMENT PENALTY TODAY: −${penToday.total} points. ${penToday.items.filter(i=>i.over>0).map(i=>`${i.label} ${round1(i.used)}h vs rec ${round1(i.rec)}h (−${i.penalty})`).join("; ")}. Frame this as awareness, never punishment.`
+      ? `ENTERTAINMENT PENALTY TODAY: −${penToday.total} points, because TOTAL entertainment was ${penToday.used}h vs the ${penToday.cap}h daily cap (over by ${penToday.over}h). The penalty is on the total only, not any single app. Frame this as awareness, never punishment.`
       : "";
 
     const tt = (k) => round1(targetFor(k, todayStr()));

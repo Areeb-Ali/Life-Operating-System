@@ -18,14 +18,14 @@ window.LOS_CONFIG = {
   ],
 
   // ---- Entertainment (tracked separately, treated as "time waste") ----
-  // `rec` = recommended max hours/day. Going over costs Balance Score points
-  // (awareness, not punishment). Entertainment never grows.
+  // Penalty applies ONLY to the day's TOTAL entertainment over the overall cap
+  // (targets.entertainment) — not per app. Awareness, not punishment. Never grows.
   entertainment: [
-    { key: "instagram", label: "Instagram",         icon: "📸", rec: 0.5 },
-    { key: "games",     label: "Games",             icon: "🎮", rec: 0.5 },
-    { key: "media",     label: "Netflix / YouTube", icon: "📺", rec: 0.75 },
+    { key: "instagram", label: "Instagram",         icon: "📸" },
+    { key: "games",     label: "Games",             icon: "🎮" },
+    { key: "media",     label: "Netflix / YouTube", icon: "📺" },
   ],
-  entertainmentPenaltyPerHour: 3.5,   // Balance-Score points lost per hour over `rec`
+  entertainmentPenaltyPerHour: 3.5,   // Balance-Score points lost per hour of TOTAL over the cap
 
   // ---- Your priority order (1 = most important) -----------------------
   // Highest priority first. Drives the priority check AND the balance score.
