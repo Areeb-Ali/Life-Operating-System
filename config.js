@@ -53,11 +53,17 @@ window.LOS_CONFIG = {
   // Entertainment and sleep never grow (you don't want to increase those).
   improvement: {
     enabled: true,
-    rate: 0.01,               // +1% per day, compounding
-    startDate: "2026-07-24",  // day the growth clock starts (targets = base here)
-    maxMultiplier: 2.5,       // guardrail: a target never grows past 2.5x its base,
-                              // so it stays humanly possible (reached ~day 92).
-                              // Set to null to remove the cap and grow forever.
+    rate: 0.01,          // +1% each PERIOD, compounding
+    period: "week",      // "week" or "day"
+    startDate: "auto",   // "auto" = your very first logged day (grows from day one of your data)
+    maxMultiplier: 2.5,  // guardrail: a target never grows past 2.5x its base.
+                         // At 1%/week the cap is reached in ~92 weeks. null = grow forever.
+  },
+
+  // ---- ACCA finish-line goal (drives the Future Projection) -----------
+  accaGoal: {
+    totalHours: 2000,    // estimated total study hours to finish ACCA incl. Foundations
+    targetYears: 2.5,    // you want to be done in 2.5 years
   },
 
   // ---- Life Balance Score (out of 100) --------------------------------

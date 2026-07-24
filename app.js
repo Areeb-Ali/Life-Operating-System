@@ -35,14 +35,22 @@
 
   /* -------- Daily improvement: targets grow 1%/day (compounding) ------- */
   const growKeys = new Set(CFG.activities.map(a => a.key)); // only productive activities grow
+  const growthStart = () => {
+    const g = CFG.improvement;
+    if (g && g.startDate && g.startDate !== "auto") return g.startDate;
+    const rows = entArr();                      // "auto" → your first logged day
+    return rows.length ? rows[0].date : todayStr();
+  };
   const growthMultiplier = (dateStr) => {
     const g = CFG.improvement;
     if (!g || !g.enabled || !g.rate) return 1;
-    const days = Math.max(0, daysBetween(g.startDate, dateStr || todayStr()));
-    let mult = Math.pow(1 + g.rate, days);
+    const days = Math.max(0, daysBetween(growthStart(), dateStr || todayStr()));
+    const units = g.period === "day" ? days : days / 7;   // default: per week
+    let mult = Math.pow(1 + g.rate, units);
     if (g.maxMultiplier) mult = Math.min(mult, g.maxMultiplier);
     return mult;
   };
+  const growthPeriodWord = () => (CFG.improvement?.period === "day" ? "day" : "week");
   // effective target for an activity on a given date (grows over time; entertainment/sleep flat)
   const targetFor = (key, dateStr) => {
     const base = CFG.targets[key] || 0;
@@ -661,6 +669,108 @@
       </div>`;
   }
 
+  /* ---------- Trends & Projection ---------- */
+  // Bucket all entries into consecutive 7-day weeks from the first logged day.
+  function weeklyBuckets() {
+    const rows = entArr();
+    if (!rows.length) return [];
+    const start = rows[0].date;
+    const buckets = {};
+    for (const e of rows) {
+      const wk = Math.floor(daysBetween(start, e.date) / 7);
+      (buckets[wk] ||= []).push(e);
+    }
+    return Object.keys(buckets).map(Number).sort((a,b)=>a-b).map(wk => {
+      const items = buckets[wk];
+      const avgScore = items.reduce((s,e)=>s+balanceScore(e),0) / items.length;
+      const acca = items.reduce((s,e)=>s+(+e.study||0),0);
+      const prod = items.reduce((s,e)=>s+productiveHours(e),0);
+      return { wk: wk+1, days: items.length, avgScore, acca, accaPerDay: acca/items.length, prodPerDay: prod/items.length,
+               from: items[0].date, to: items[items.length-1].date };
+    });
+  }
+
+  function renderTrends() {
+    const el = $("#view-trends");
+    const weeks = weeklyBuckets();
+    const G = CFG.accaGoal;
+
+    // ---- Future projection (ACCA) ----
+    const accaAvg   = avgAll(e => +e.study||0);      // per-day, over all logged data
+    const accaTotal = sumAll(e => +e.study||0);
+    const perYear   = accaAvg * 365;
+    const remaining = Math.max(0, G.totalHours - accaTotal);
+    const yearsLeft = perYear > 0 ? remaining / perYear : Infinity;
+    const requiredPerDay = G.totalHours / (G.targetYears * 365);
+    // pace vs the 2.5-year target
+    let pace, paceCls;
+    if (accaAvg <= 0)                     { pace = "No data yet"; paceCls = "flat"; }
+    else if (yearsLeft <= G.targetYears)  { pace = "Excellent — ahead of target"; paceCls = "up"; }
+    else if (yearsLeft <= G.targetYears*1.25){ pace = "On track"; paceCls = "up"; }
+    else if (yearsLeft <= G.targetYears*1.6) { pace = "Slightly behind"; paceCls = "down"; }
+    else                                  { pace = "Behind — needs a lift"; paceCls = "down"; }
+
+    if (!weeks.length) {
+      el.innerHTML = `<div class="page-head"><div class="page-title">Trends &amp; Projection</div></div>
+        <div class="empty">Log a few days and your weekly trend + ACCA projection will appear here.</div>`;
+      return;
+    }
+
+    const maxScore = Math.max(70, ...weeks.map(w=>w.avgScore));
+    const trendBars = weeks.map(w => `
+      <div class="col" title="${fmtDate(w.from)} → ${fmtDate(w.to)} · ${w.days} day(s)">
+        <em>${Math.round(w.avgScore)}</em>
+        <i style="height:${Math.max(6,(w.avgScore/maxScore)*100)}%"></i>
+        <span>Week ${w.wk}</span>
+      </div>`).join("");
+    const first = weeks[0].avgScore, last = weeks[weeks.length-1].avgScore;
+    const trendDelta = weeks.length>1
+      ? (last>=first ? `<span class="up">▲ Up ${Math.round(last-first)} points</span> since Week 1 — the line is climbing.`
+                     : `<span class="down">▼ Down ${Math.round(first-last)} points</span> since Week 1 — a reset stretch, not a failure.`)
+      : "Keep logging to see the trend build.";
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Trends &amp; Projection</div>
+        <div class="page-sub">Your Balance Score week by week, and where ACCA is heading at your current pace.</div>
+      </div>
+
+      <div class="card" style="grid-column:1/-1">
+        <h3>📈 Monthly Trend — average Balance Score per week</h3>
+        <div class="growthfig">${trendBars}</div>
+        <div class="hint" style="margin-top:14px;font-size:13.5px">${trendDelta}</div>
+      </div>
+
+      <h3 style="color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:24px 0 12px">🎓 Future Projection — ACCA</h3>
+      <div class="grid cols-4">
+        ${statTile("Current ACCA Average", hm(accaAvg), "/day", "📚", null)}
+        ${statTile("Projected per Year", Math.round(perYear), "h/year", "📅", null)}
+        ${statTile("Hours Logged", Math.round(accaTotal), "h", "⏱️", null)}
+        ${statTile("Current Pace", "", "", "🚀", {cls:paceCls, txt:pace})}
+      </div>
+
+      <div class="card" style="grid-column:1/-1;margin-top:16px">
+        <h3>🎯 Finish line — ${G.totalHours}h target (incl. Foundations), in ${G.targetYears} years</h3>
+        <div class="mini-grid">
+          <div class="mini"><div class="ml">Finish in (at current pace)</div><div class="mv">${isFinite(yearsLeft)?yearsLeft.toFixed(1):"—"}<span style="font-size:12px;color:var(--muted)"> yrs</span></div></div>
+          <div class="mini"><div class="ml">Your target</div><div class="mv">${G.targetYears}<span style="font-size:12px;color:var(--muted)"> yrs</span></div></div>
+          <div class="mini"><div class="ml">Need per day to hit target</div><div class="mv">${hm(requiredPerDay)}</div></div>
+          <div class="mini"><div class="ml">Remaining hours</div><div class="mv">${Math.round(remaining)}<span style="font-size:12px;color:var(--muted)">h</span></div></div>
+        </div>
+        ${(() => {
+          if (accaAvg<=0) return `<div class="callout info" style="margin-top:16px"><div class="ci">📚</div><div class="ctext">Log some ACCA hours and I'll project your finish date.</div></div>`;
+          const ahead = yearsLeft <= G.targetYears;
+          const gap = requiredPerDay - accaAvg;
+          return `<div class="callout ${ahead?'good':'warn'}" style="margin-top:16px"><div class="ci">${ahead?'🏆':'🎯'}</div>
+            <div class="ctext"><div class="ctitle">${ahead?`On track to finish in ~${yearsLeft.toFixed(1)} years — ahead of your ${G.targetYears}-year goal`:`At this pace it's ~${yearsLeft.toFixed(1)} years`}</div>
+            ${ahead
+              ? `Keep the current ${hm(accaAvg)}/day and you beat the deadline. Even holding steady wins.`
+              : `To finish in ${G.targetYears} years you need about <b>${hm(requiredPerDay)}/day</b> — that's just <b>+${hm(Math.max(0,gap))}/day</b> more than now. Small, weekly, sustainable.`}</div></div>`;
+        })()}
+        <div class="hint" style="margin-top:12px">Estimate assumes ~${G.totalHours} study hours across all ACCA papers including Foundations. You can change this in <span class="mono">config.js → accaGoal</span>.</div>
+      </div>`;
+  }
+
   /* ---------- Goals ---------- */
   function renderGoals() {
     const el = $("#view-goals");
@@ -682,7 +792,7 @@
     };
     const mult = growthMultiplier(todayStr());
     const growthNote = CFG.improvement?.enabled
-      ? `Every target below grows <b>+${(CFG.improvement.rate*100)}%/day</b> (compounding). Today's targets are <b>${mult.toFixed(2)}×</b> the base${CFG.improvement.maxMultiplier && mult>=CFG.improvement.maxMultiplier?" (max reached)":""}. Entertainment never grows.`
+      ? `Every target below grows <b>+${(CFG.improvement.rate*100)}%/${growthPeriodWord()}</b> (compounding, since your first logged day). Today's targets are <b>${mult.toFixed(2)}×</b> the base${CFG.improvement.maxMultiplier && mult>=CFG.improvement.maxMultiplier?" (max reached)":""}. Entertainment never grows.`
       : "Based on your 7-day rolling averages.";
     const t = (k) => targetFor(k, todayStr());
     el.innerHTML = `
@@ -766,7 +876,7 @@
 
   /* ----------------------------- Router ------------------------------ */
   function renderAll() {
-    renderDashboard(); renderCoach(); renderWeekly();
+    renderDashboard(); renderCoach(); renderWeekly(); renderTrends();
     renderGoals(); renderAchievements(); renderHistory();
   }
   function go(view) {
@@ -861,7 +971,7 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
 
     const tt = (k) => round1(targetFor(k, todayStr()));
     const gInfo = CFG.improvement?.enabled
-      ? `\nDAILY IMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per day (compounding), whether or not yesterday's was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each day; keep suggestions realistic for the CURRENT (grown) target.`
+      ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
     return `USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
 PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}
