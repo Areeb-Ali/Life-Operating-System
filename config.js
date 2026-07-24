@@ -65,10 +65,11 @@ window.LOS_CONFIG = {
 
   // ---- ACCA finish-line goal (drives the Future Projection) -----------
   accaGoal: {
-    totalHours: 2500,    // total study hours to finish ACCA incl. Foundations
-    targetYears: 2.5,    // you want to be done in 2.5 years
-    examDate: "2026-09-08",   // your NEXT ACCA exam — the manager counts down to this
-    currentFocus: "Set your current paper & chapter here (e.g. FR — Chapter 5: Leases)",
+    totalHours: 2500,    // total study hours to finish ACCA incl. Foundations — the real target
+    targetYears: 2.5,    // you want to be done in 2.5 years — the manager plans around THIS
+    currentPaper: "FBT", // the paper you're studying now (changes every few weeks, not daily)
+    examDate: null,      // leave null until you actually BOOK an exam. While null, the manager
+                         // plans by your finish-line pace instead of a countdown.
   },
 
   // ---- Life Balance Score (out of 100) --------------------------------

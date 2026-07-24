@@ -126,6 +126,27 @@
   });
 
   /* ===================================================================
+     ACCA FINISH-LINE PROJECTION (2500h target, current pace)
+     =================================================================== */
+  const accaProjection = () => {
+    const G = CFG.accaGoal || {};
+    const accaAvg = avgAll(e => +e.study||0);      // per-day over all logged data
+    const total   = sumAll(e => +e.study||0);
+    const perYear = accaAvg * 365;
+    const remaining = Math.max(0, (G.totalHours||0) - total);
+    const yearsLeft = perYear > 0 ? remaining / perYear : Infinity;
+    const requiredPerDay = (G.totalHours||0) / ((G.targetYears||1) * 365);
+    let pace, paceCls;
+    if (accaAvg <= 0)                        { pace = "No data yet"; paceCls = "flat"; }
+    else if (yearsLeft <= G.targetYears)     { pace = "Excellent — ahead of target"; paceCls = "up"; }
+    else if (yearsLeft <= G.targetYears*1.25){ pace = "On track"; paceCls = "up"; }
+    else if (yearsLeft <= G.targetYears*1.6) { pace = "Slightly behind"; paceCls = "down"; }
+    else                                     { pace = "Behind — needs a lift"; paceCls = "down"; }
+    const daysToExam = G.examDate ? daysBetween(todayStr(), G.examDate) : null;
+    return { ...G, accaAvg, total, perYear, remaining, yearsLeft, requiredPerDay, pace, paceCls, daysToExam };
+  };
+
+  /* ===================================================================
      PRIORITY CHECK  (uses CFG.priorities order)
      =================================================================== */
   const priorityCheck = (e) => {
@@ -463,16 +484,27 @@
 
     const balToday = today ? balanceScore(today) : 0;
 
-    // ACCA exam countdown banner
-    const G = CFG.accaGoal || {};
-    const dte = G.examDate ? daysBetween(todayStr(), G.examDate) : null;
-    const examBanner = (dte != null && dte >= 0) ? `
-      <div class="callout ${dte<=30?'alert':dte<=60?'warn':'info'}" style="margin-bottom:18px">
-        <div class="ci">🎓</div>
-        <div class="ctext"><div class="ctitle">ACCA exam in ${dte} day${dte===1?'':'s'} · ${fmtDate(G.examDate)}</div>
-        Focus: ${G.currentFocus && !/^Set your/.test(G.currentFocus) ? G.currentFocus : `<span style="color:var(--muted)">set your current paper &amp; chapter in config.js</span>`}
-        <div class="sub">Ask the manager below: “What should I do now?”</div></div>
-      </div>` : "";
+    // ACCA banner — exam countdown if an exam is booked, else finish-line pace
+    const proj = accaProjection();
+    const paper = proj.currentPaper ? `Currently on <b>${proj.currentPaper}</b>` : "";
+    let examBanner = "";
+    if (proj.daysToExam != null && proj.daysToExam >= 0) {
+      const dte = proj.daysToExam;
+      examBanner = `
+        <div class="callout ${dte<=30?'alert':dte<=60?'warn':'info'}" style="margin-bottom:18px">
+          <div class="ci">🎓</div>
+          <div class="ctext"><div class="ctitle">ACCA exam in ${dte} day${dte===1?'':'s'} · ${fmtDate(proj.examDate)}</div>
+          ${paper}<div class="sub">Ask the manager below: “What should I do now?”</div></div>
+        </div>`;
+    } else if (proj.accaAvg > 0) {
+      examBanner = `
+        <div class="callout ${proj.paceCls==='up'?'good':'warn'}" style="margin-bottom:18px">
+          <div class="ci">🎓</div>
+          <div class="ctext"><div class="ctitle">ACCA finish-line · ${proj.pace}</div>
+          ${paper}${paper?" · ":""}At ${hm(proj.accaAvg)}/day you finish in ~${isFinite(proj.yearsLeft)?proj.yearsLeft.toFixed(1):"—"} yrs (target ${proj.targetYears}). Need <b>${hm(proj.requiredPerDay)}/day</b>.
+          <div class="sub">No exam booked yet — the manager plans by your pace. Ask: “What should I do now?”</div></div>
+        </div>`;
+    }
 
     el.innerHTML = `
       <div class="page-head">
@@ -736,19 +768,8 @@
     const G = CFG.accaGoal;
 
     // ---- Future projection (ACCA) ----
-    const accaAvg   = avgAll(e => +e.study||0);      // per-day, over all logged data
-    const accaTotal = sumAll(e => +e.study||0);
-    const perYear   = accaAvg * 365;
-    const remaining = Math.max(0, G.totalHours - accaTotal);
-    const yearsLeft = perYear > 0 ? remaining / perYear : Infinity;
-    const requiredPerDay = G.totalHours / (G.targetYears * 365);
-    // pace vs the 2.5-year target
-    let pace, paceCls;
-    if (accaAvg <= 0)                     { pace = "No data yet"; paceCls = "flat"; }
-    else if (yearsLeft <= G.targetYears)  { pace = "Excellent — ahead of target"; paceCls = "up"; }
-    else if (yearsLeft <= G.targetYears*1.25){ pace = "On track"; paceCls = "up"; }
-    else if (yearsLeft <= G.targetYears*1.6) { pace = "Slightly behind"; paceCls = "down"; }
-    else                                  { pace = "Behind — needs a lift"; paceCls = "down"; }
+    const proj = accaProjection();
+    const { accaAvg, total: accaTotal, perYear, remaining, yearsLeft, requiredPerDay, pace, paceCls } = proj;
 
     if (!weeks.length) {
       el.innerHTML = `<div class="page-head"><div class="page-title">Trends &amp; Projection</div></div>
@@ -772,7 +793,7 @@
     el.innerHTML = `
       <div class="page-head">
         <div class="page-title">Trends &amp; Projection</div>
-        <div class="page-sub">Your Balance Score week by week, and where ACCA is heading at your current pace.</div>
+        <div class="page-sub">Your Balance Score week by week, and where ACCA is heading at your current pace.${proj.currentPaper?` Currently on <b style="color:var(--accent)">${proj.currentPaper}</b>.`:""}${proj.examDate?"":" No exam booked yet — planning by pace."}</div>
       </div>
 
       <div class="card" style="grid-column:1/-1">
@@ -1010,13 +1031,12 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
     })() : "TODAY'S SCORE: not logged yet.";
     const scoreHistory = rows.slice(-10).map(e => `${e.date}: ${Math.round(balanceScore(e))}`).join(", ");
 
-    // ---- ACCA exam countdown + current focus (the manager plans around this) ----
-    const G = CFG.accaGoal || {};
-    const daysToExam = G.examDate ? daysBetween(todayStr(), G.examDate) : null;
-    const accaTotal = round1(sumAll(e => +e.study||0));
-    const examInfo = G.examDate
-      ? `ACCA EXAM COUNTDOWN: ${daysToExam > 0 ? daysToExam + " days" : "PAST/today"} until the next exam (${G.examDate}). Current focus: "${G.currentFocus || "not set"}". ACCA hours logged so far: ${accaTotal}h toward a ${G.totalHours}h goal (target: finish in ${G.targetYears} years).`
-      : "";
+    // ---- ACCA plan: exam countdown if booked, else finish-line pace ----
+    const proj = accaProjection();
+    const paperLine = proj.currentPaper ? `The user is currently studying paper "${proj.currentPaper}". Chapters change almost every day, so do NOT invent chapter numbers — refer to "today's ${proj.currentPaper} chapter" or ask which chapter they're on.` : "";
+    const examInfo = (proj.daysToExam != null && proj.daysToExam >= 0)
+      ? `ACCA EXAM COUNTDOWN: ${proj.daysToExam} days until the booked exam (${proj.examDate}). ${paperLine} ${round1(proj.total)}h logged of ${proj.totalHours}h goal.`
+      : `ACCA PLAN (no exam booked yet — the user books an exam only after finishing the syllabus, so plan by PACE, not a countdown): ${paperLine} At the current ${round1(proj.accaAvg)}h/day they finish the ${proj.totalHours}h qualification in ~${isFinite(proj.yearsLeft)?proj.yearsLeft.toFixed(1):"—"} years vs their ${proj.targetYears}-year target. To hit the target they need about ${round1(proj.requiredPerDay)}h/day of ACCA. Pace verdict: ${proj.pace}. ${round1(proj.total)}h logged so far. Use this finish-line as the thing to manage toward.`;
     // ---- Today's entertainment penalty (awareness) ----
     const penToday = today ? entertainmentPenalty(today) : null;
     const penInfo = penToday && penToday.total > 0
