@@ -62,7 +62,7 @@ window.LOS_CONFIG = {
 
   // ---- ACCA finish-line goal (drives the Future Projection) -----------
   accaGoal: {
-    totalHours: 2000,    // estimated total study hours to finish ACCA incl. Foundations
+    totalHours: 2500,    // total study hours to finish ACCA incl. Foundations
     targetYears: 2.5,    // you want to be done in 2.5 years
   },
 
