@@ -51,10 +51,26 @@
     return mult;
   };
   const growthPeriodWord = () => (CFG.improvement?.period === "day" ? "day" : "week");
-  // effective target for an activity on a given date (grows over time; entertainment/sleep flat)
+
+  /* -------- Weekend relax mode: lighter targets, no entertainment cut --- */
+  const isWeekend = (dateStr) => {
+    const w = CFG.weekend;
+    if (!w || !w.enabled) return false;
+    const day = new Date((dateStr || todayStr()) + "T00:00:00Z").getUTCDay();
+    return (w.days || [0,6]).includes(day);
+  };
+  // Top priorities keep their full target even on weekends; the rest get lighter.
+  const weekendKeepSet = () => new Set((CFG.priorities || []).slice(0, CFG.weekend?.keepTopPriorities ?? 0));
+  const weekendFactor = (dateStr, key) => {
+    if (!isWeekend(dateStr)) return 1;
+    if (key && weekendKeepSet().has(key)) return 1;
+    return CFG.weekend.targetFactor ?? 1;
+  };
+  // effective target for an activity on a given date (grows over time, lighter on
+  // weekends; entertainment/sleep flat)
   const targetFor = (key, dateStr) => {
     const base = CFG.targets[key] || 0;
-    return growKeys.has(key) ? base * growthMultiplier(dateStr) : base;
+    return growKeys.has(key) ? base * growthMultiplier(dateStr) * weekendFactor(dateStr, key) : base;
   };
 
   /* ----------------------- Derived per-entry ------------------------- */
@@ -70,8 +86,10 @@
     const per = CFG.entertainmentPenaltyPerHour || 0;
     const cap = CFG.targets.entertainment || 0;
     const used = entertainmentHours(e);
-    const over = Math.max(0, used - cap);
-    return { total: round1(over * per), used: round1(used), cap, over: round1(over) };
+    // Weekends are relax days — no penalty if disabled for weekends.
+    const relaxed = isWeekend(e.date) && CFG.weekend?.entertainmentPenalty === false;
+    const over = relaxed ? 0 : Math.max(0, used - cap);
+    return { total: round1(over * per), used: round1(used), cap, over: round1(over), relaxed };
   };
 
   // average of a numeric getter over the last N days that HAVE entries
@@ -419,9 +437,11 @@
           Total entertainment <b>${hm(pen.used)}</b> · daily cap <b>${hm(pen.cap)}</b> · over by ${hm(pen.over)} → <span class="down">−${pen.total}</span>
           <div class="sub">This isn't punishment — it's awareness. Only the total over your cap counts; the points are recoverable tomorrow.</div>
         </div></div>` : "";
+    const relaxBadge = isWeekend(e.date)
+      ? `<span class="pill g" style="margin-left:10px">🌴 Relax day · ACCA &amp; Job stay full, rest lighter</span>` : "";
     return `<div class="card" style="grid-column:1/-1">
       <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
-        <h3 style="margin:0">⚖️ Life Balance Score — where your points came from</h3>
+        <h3 style="margin:0">⚖️ Life Balance Score — where your points came from${relaxBadge}</h3>
         <div><span class="score-big">${Math.round(total)}</span><span style="color:var(--muted)">/100</span></div>
       </div>
       <div class="bar ${cls}" style="margin:10px 0 18px"><i style="width:${total}%"></i></div>
@@ -577,7 +597,7 @@
     el.innerHTML = `
       <div class="page-head">
         <div class="page-title">Daily Input</div>
-        <div class="page-sub">One quick fill each day. Everything below is optional — log what you can.</div>
+        <div class="page-sub">One quick fill each day. Everything below is optional — log what you can.${isWeekend(todayStr())?` <span style="color:var(--green)">🌴 Relax day — ACCA &amp; Job targets stay full, everything else is lighter, no entertainment penalty.</span>`:""}</div>
       </div>
       <div class="card">
         <div class="form-grid">
@@ -1039,12 +1059,15 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       ? `ENTERTAINMENT PENALTY TODAY: −${penToday.total} points, because TOTAL entertainment was ${penToday.used}h vs the ${penToday.cap}h daily cap (over by ${penToday.over}h). The penalty is on the total only, not any single app. Frame this as awareness, never punishment.`
       : "";
 
+    const weekendInfo = isWeekend(todayStr())
+      ? `\nTODAY IS A WEEKEND / RELAX DAY: targets for lower priorities are lighter (×${CFG.weekend.targetFactor}) and there is NO entertainment penalty. BUT the top ${CFG.weekend.keepTopPriorities} priorities (ACCA and Current Job) keep their FULL targets — those two still matter today. So: keep ACCA and Job on track, but be relaxed and encouraging about everything else; let them rest and recharge.`
+      : "";
     const tt = (k) => round1(targetFor(k, todayStr()));
     const gInfo = CFG.improvement?.enabled
       ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
     return `${examInfo ? examInfo + "\n\n" : ""}${penInfo ? penInfo + "\n\n" : ""}USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
-PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}
 
 ${scoreModel}
 ${todayScore}

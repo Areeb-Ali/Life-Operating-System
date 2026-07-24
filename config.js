@@ -50,6 +50,18 @@ window.LOS_CONFIG = {
     sleepMax: 9,
   },
 
+  // ---- Weekend relax mode ---------------------------------------------
+  // Saturday & Sunday are for recharging. Targets shrink (so full points come
+  // easily) and the entertainment penalty is switched off (points never cut).
+  weekend: {
+    enabled: true,
+    days: [0, 6],            // 0 = Sunday, 6 = Saturday
+    targetFactor: 0.5,       // weekend targets = half of the weekday target...
+    keepTopPriorities: 2,    // ...EXCEPT the top 2 priorities (ACCA & Current Job)
+                             // which stay at full target even on weekends.
+    entertainmentPenalty: false,  // false = no entertainment penalty on weekends
+  },
+
   // ---- Daily improvement: targets grow a little every day -------------
   // Each day your target for every PRODUCTIVE activity is 1% higher than the
   // day before — whether or not you hit yesterday's. Small, compounding growth.
