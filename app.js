@@ -104,6 +104,11 @@
     return rows.reduce((s,e) => s + getter(e), 0) / rows.length;
   };
   const sumAll = (getter) => entArr().reduce((s,e) => s + getter(e), 0);
+  // hours of one activity logged in the current calendar month
+  const monthHours = (key) => {
+    const ym = todayStr().slice(0,7);
+    return entArr().filter(e => e.date.slice(0,7) === ym).reduce((s,e) => s + (+e[key]||0), 0);
+  };
 
   /* ===================================================================
      LIFE BALANCE SCORE (out of 100)
@@ -848,6 +853,81 @@
       </div>`;
   }
 
+  /* ---------- Income Plan ---------- */
+  const fmtMoney = (n) => (CFG.incomeGoal?.currency || "") + " " + Math.round(n).toLocaleString("en-US");
+  function renderIncome() {
+    const el = $("#view-income");
+    const G = CFG.incomeGoal;
+    if (!G || !G.enabled) { el.innerHTML = `<div class="page-head"><div class="page-title">Income Plan</div></div><div class="empty">Enable it in config.js → incomeGoal.</div>`; return; }
+    const gap = Math.max(0, G.target - G.current);
+    const dLeft = daysBetween(todayStr(), G.deadline);
+    const relCls = (r) => /primary|stable/.test(r) ? "ok" : /uncertain/.test(r) ? "bad" : "no";
+
+    // two clear routes to the target
+    const routeA = G.paths.find(p => p.key === "jobUpgrade");
+    const jobP   = G.paths.find(p => p.key === "job");
+    const tradeP = G.paths.find(p => p.key === "trading");
+    const routeB = jobP && tradeP ? jobP.plan + tradeP.plan : null;
+
+    const pathCard = (p) => {
+      const fed = p.feeds ? monthHours(p.feeds) : null;
+      return `<div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+          <h3 style="margin:0">${p.icon} ${p.label}</h3>
+          <span class="pill ${relCls(p.reliability)}">${p.reliability}</span>
+        </div>
+        <div class="mini-grid" style="margin:12px 0">
+          <div class="mini"><div class="ml">Now</div><div class="mv" style="font-size:17px">${fmtMoney(p.now)}</div></div>
+          <div class="mini"><div class="ml">Planned</div><div class="mv" style="font-size:17px">${p.plan>0?fmtMoney(p.plan):"—"}</div></div>
+          ${p.feeds ? `<div class="mini"><div class="ml">This month's hours</div><div class="mv" style="font-size:17px">${hm(fed)}</div></div>` : ""}
+        </div>
+        <div class="hint" style="font-size:13px;line-height:1.55">${p.note}</div>
+      </div>`;
+    };
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Income Plan — ${fmtMoney(G.target)}/month by November</div>
+        <div class="page-sub">From ${fmtMoney(G.current)} today. ${dLeft>0?`${dLeft} days to your ${fmtDate(G.deadline)} target.`:`Target date reached.`}</div>
+      </div>
+
+      <div class="grid cols-4">
+        ${statTile("Target / month", fmtMoney(G.target), "", "🎯", null)}
+        ${statTile("Now / month", fmtMoney(G.current), "", "💼", null)}
+        ${statTile("Gap to close", fmtMoney(gap), "", "📈", null)}
+        ${statTile("Days left", dLeft>0?dLeft:0, "", "⏳", null)}
+      </div>
+
+      <div class="grid cols-2" style="margin-top:16px">
+        <div class="card" style="border-color:rgba(62,207,142,.4)">
+          <h3>✅ Route A — the reliable one</h3>
+          <div class="callout good"><div class="ci">📈</div><div class="ctext">
+            <div class="ctitle">Job Upgrade → a ${fmtMoney(routeA?.plan||50000)} role</div>
+            This single move hits the target and replaces the ${fmtMoney(G.current)} job. You said it yourself — a 50k role is normal in your field. It's fed by the <b>Job-Upgrade hours</b> you already track. This month: <b>${hm(monthHours("jobUpgrade"))}</b>.
+          </div></div>
+          <div class="hint">Most dependable path. Every application, interview and skill hour counts here.</div>
+        </div>
+        <div class="card" style="border-color:rgba(255,181,71,.4)">
+          <h3>🔀 Route B — the parallel one</h3>
+          <div class="callout warn"><div class="ci">📊</div><div class="ctext">
+            <div class="ctitle">Job ${fmtMoney(jobP?.plan||25000)} + Trading ~${fmtMoney(tradeP?.plan||27800)} = ~${fmtMoney(routeB||53000)}</div>
+            Keep the day job and add funded-account profit. ~4%/mo on $2500 ≈ ${fmtMoney(tradeP?.plan||27800)} (before prop-firm split). Low time, ramps from ~3 months out — fits the November timing.
+          </div></div>
+          <div class="hint">Parallel backup. Uncertain — trading profit is never guaranteed.</div>
+        </div>
+      </div>
+
+      <h3 style="color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin:24px 0 12px">All income paths</h3>
+      <div class="grid cols-2">
+        ${G.paths.map(pathCard).join("")}
+      </div>
+
+      <div class="callout info" style="margin-top:18px"><div class="ci">ℹ️</div><div class="ctext">
+        <div class="ctitle">A plan, not financial advice</div>
+        These are your own estimates organised into a roadmap. Trading and bot income are uncertain and not guaranteed. The most reliable path to ${fmtMoney(G.target)} is the job upgrade — so your tracked Job-Upgrade hours are the real lever. Update numbers anytime in <span class="mono">config.js → incomeGoal</span>.
+      </div></div>`;
+  }
+
   /* ---------- Goals ---------- */
   function renderGoals() {
     const el = $("#view-goals");
@@ -953,7 +1033,7 @@
 
   /* ----------------------------- Router ------------------------------ */
   function renderAll() {
-    renderDashboard(); renderCoach(); renderWeekly(); renderTrends();
+    renderDashboard(); renderCoach(); renderWeekly(); renderTrends(); renderIncome();
     renderGoals(); renderAchievements(); renderHistory();
   }
   function go(view) {
@@ -1059,6 +1139,14 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       ? `ENTERTAINMENT PENALTY TODAY: −${penToday.total} points, because TOTAL entertainment was ${penToday.used}h vs the ${penToday.cap}h daily cap (over by ${penToday.over}h). The penalty is on the total only, not any single app. Frame this as awareness, never punishment.`
       : "";
 
+    // ---- Income goal so the manager connects daily work to money ----
+    const IG = CFG.incomeGoal;
+    const incomeInfo = (IG && IG.enabled) ? (() => {
+      const dLeft = daysBetween(todayStr(), IG.deadline);
+      const upgHrsMonth = round1(monthHours("jobUpgrade"));
+      const botHrsMonth = round1(monthHours("bots"));
+      return `\nINCOME GOAL: reach ${IG.currency} ${IG.target}/month by ${IG.deadline} (${dLeft} days), up from ${IG.current}/month now. Routes: (A, most reliable) a job upgrade to a ${IG.currency} 50000 role — powered by the user's Job-Upgrade hours (this month: ${upgHrsMonth}h); (B, parallel/uncertain) keep the 25k job + ~4%/mo on a $2500 funded account ≈ ${IG.currency} 27800 (not guaranteed, ramps ~3 months out); (upside) Bots to sell later, this month ${botHrsMonth}h. When relevant, tie daily decisions to this — Job-Upgrade effort is the dependable lever. You are NOT a financial advisor: never recommend trades or investment strategy; treat trading numbers as the user's own estimates.`;
+    })() : "";
     const weekendInfo = isWeekend(todayStr())
       ? `\nTODAY IS A WEEKEND / RELAX DAY: targets for lower priorities are lighter (×${CFG.weekend.targetFactor}) and there is NO entertainment penalty. BUT the top ${CFG.weekend.keepTopPriorities} priorities (ACCA and Current Job) keep their FULL targets — those two still matter today. So: keep ACCA and Job on track, but be relaxed and encouraging about everything else; let them rest and recharge.`
       : "";
@@ -1067,7 +1155,7 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
     return `${examInfo ? examInfo + "\n\n" : ""}${penInfo ? penInfo + "\n\n" : ""}USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
-PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}${incomeInfo}
 
 ${scoreModel}
 ${todayScore}

@@ -76,6 +76,32 @@ window.LOS_CONFIG = {
   },
 
   // ---- ACCA finish-line goal (drives the Future Projection) -----------
+  // ---- Income goal: 50k PKR/month by November ------------------------
+  // NOTE: this is a personal planning tool, not financial advice. Trading
+  // figures are the user's own estimates; profits are never guaranteed.
+  incomeGoal: {
+    enabled: true,
+    currency: "PKR",
+    target: 50000,            // monthly income target
+    current: 25000,           // current monthly income (the day job)
+    deadline: "2026-11-01",   // want to reach the target by November
+    usdToPkr: 278,            // approx rate (update as needed)
+    paths: [
+      { key: "job", label: "Current Job", icon: "💼", now: 25000, plan: 25000,
+        reliability: "stable", feeds: "job",
+        note: "Your steady base. Keep it, don't over-invest time — 2h/day is enough for a 25k job." },
+      { key: "jobUpgrade", label: "Job Upgrade → 50k role", icon: "📈", now: 0, plan: 50000,
+        reliability: "primary · most reliable", feeds: "jobUpgrade",
+        note: "A 50k salary role is normal in your field. This path ALONE hits the target and replaces the 25k job. Powered by your tracked Job-Upgrade hours: applications, interviews, skills." },
+      { key: "trading", label: "Trading — GOAT funded $2500", icon: "📊", now: 0, plan: 27800,
+        reliability: "uncertain · not guaranteed",
+        note: "Your estimate: ~4%/mo on $2500 = $100 ≈ 27,800 PKR (before any prop-firm profit split). Low time (swing setups, ~1 trade/week); realistically ramps from ~3 months out. This is a plan, NOT financial advice — trading profit is never guaranteed." },
+      { key: "bots", label: "Bots — sell / services", icon: "🤖", now: 0, plan: 0,
+        reliability: "long-term upside", feeds: "bots",
+        note: "Future income (sell products/services) AND they make your trading more effective. Not counted in the November target — treat as bonus upside. Powered by your tracked Bot hours." },
+    ],
+  },
+
   accaGoal: {
     totalHours: 2500,    // total study hours to finish ACCA incl. Foundations — the real target
     targetYears: 2.5,    // you want to be done in 2.5 years — the manager plans around THIS
