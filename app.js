@@ -598,6 +598,12 @@
         <label>${a.icon} ${a.label}</label>
         ${hmInput("e_"+a.key, d.ent?.[a.key])}
       </div>`).join("");
+    // Job Work (Product Manager) — hours per category + what you did
+    const jobFields = (CFG.jobRole?.enabled ? CFG.jobRole.categories : []).map(c => `
+      <div class="field">
+        <label>${c.icon} ${c.label} <span class="hint" style="margin:0;color:var(--faint)">${c.weight}%</span></label>
+        ${hmInput("j_"+c.key, d.job5?.[c.key])}
+      </div>`).join("");
 
     el.innerHTML = `
       <div class="page-head">
@@ -620,6 +626,14 @@
 
           <div class="section-label">Entertainment — hours & minutes</div>
           ${entFields}
+
+          ${CFG.jobRole?.enabled ? `
+          <div class="section-label">💼 Job Work (${CFG.jobRole.title}) — time per category</div>
+          ${jobFields}
+          <div class="field field-full">
+            <label>📝 What did you do at your job today?</label>
+            <textarea id="f_jobLog" placeholder="e.g. Wrote requirements for the new alerts feature, reviewed 2 competitor apps...">${d.jobLog??""}</textarea>
+          </div>` : ""}
 
           <div class="section-label">How you felt</div>
           <div class="field">
@@ -661,6 +675,11 @@
         reflect:{ win:$("#r_win").value.trim(), slow:$("#r_slow").value.trim(), next:$("#r_next").value.trim() } };
       CFG.activities.forEach(a => entry[a.key] = readHM("f_"+a.key));
       CFG.entertainment.forEach(a => entry.ent[a.key] = readHM("e_"+a.key));
+      if (CFG.jobRole?.enabled) {
+        entry.job5 = {};
+        CFG.jobRole.categories.forEach(c => entry.job5[c.key] = readHM("j_"+c.key));
+        entry.jobLog = ($("#f_jobLog")?.value || "").trim();
+      }
       DB[date] = entry; save(DB);
       toast("Saved ✓  Coach updated.");
       renderAll(); go("dashboard");
@@ -928,6 +947,84 @@
       </div></div>`;
   }
 
+  /* ---------- Job Performance ---------- */
+  const jobHours = (catKey, scope) => {              // scope: "month" | "all"
+    const ym = todayStr().slice(0,7);
+    const rows = scope === "month" ? entArr().filter(e => e.date.slice(0,7) === ym) : entArr();
+    return rows.reduce((s,e) => s + (+(e.job5?.[catKey])||0), 0);
+  };
+  function renderJob() {
+    const el = $("#view-job");
+    const J = CFG.jobRole;
+    if (!J || !J.enabled) { el.innerHTML = `<div class="page-head"><div class="page-title">Job Performance</div></div><div class="empty">Enable it in config.js → jobRole.</div>`; return; }
+
+    const scopeTotals = (scope) => {
+      const per = J.categories.map(c => ({ ...c, hrs: jobHours(c.key, scope) }));
+      const total = per.reduce((s,c) => s + c.hrs, 0) || 0;
+      return { per, total };
+    };
+    const month = scopeTotals("month");
+    const all   = scopeTotals("all");
+
+    const catRow = (c, total) => {
+      const actualPct = total > 0 ? (c.hrs/total)*100 : 0;
+      const diff = actualPct - c.weight;                  // vs target weight
+      const verdict = total === 0 ? "" : Math.abs(diff) <= 6
+        ? `<span class="pill ok">on balance</span>`
+        : diff > 0 ? `<span class="pill no">+${Math.round(diff)}% over</span>`
+                   : `<span class="pill bad">${Math.round(diff)}% under</span>`;
+      return `<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+        <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap">
+          <div style="font-weight:600">${c.icon} ${c.label} <span class="hint" style="margin:0">target ${c.weight}%</span></div>
+          <div style="display:flex;align-items:center;gap:10px">${verdict}<span class="tnum" style="color:var(--muted);font-size:13px">${hm(c.hrs)} · ${Math.round(actualPct)}%</span></div>
+        </div>
+        <div class="bar" style="margin-top:8px">
+          <i style="width:${Math.min(100,actualPct)}%"></i>
+        </div>
+        <div class="hint" style="margin-top:6px">e.g. ${c.tasks.slice(0,3).join(" · ")}</div>
+      </div>`;
+    };
+
+    // recent job journal
+    const logs = entArr().filter(e => (e.jobLog||"").trim()).slice(-14).reverse();
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">Job Performance — ${J.title}</div>
+        <div class="page-sub">Time split across your 5 responsibilities, plus a journal for your appraisal.</div>
+      </div>
+
+      <div class="grid cols-2">
+        <div class="card">
+          <h3>This month · ${hm(month.total)} logged</h3>
+          ${month.per.map(c => catRow(c, month.total)).join("")}
+        </div>
+        <div class="card">
+          <h3>All time · ${hm(all.total)} logged</h3>
+          ${all.per.map(c => catRow(c, all.total)).join("")}
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:16px">
+        <h3>🗓️ Job Journal — what you did (for your appraisal)</h3>
+        ${logs.length ? logs.map(e => {
+          const cats = J.categories.filter(c => (+(e.job5?.[c.key])||0) > 0).map(c => `${c.icon}${hm(+e.job5[c.key])}`).join("  ");
+          return `<div style="padding:12px 0;border-bottom:1px solid var(--border)">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+              <b style="font-size:13.5px">${fmtDate(e.date)}</b>
+              <span class="hint" style="margin:0">${cats||"—"}</span>
+            </div>
+            <div style="font-size:14px;margin-top:4px">${e.jobLog.replace(/</g,"&lt;")}</div>
+          </div>`; }).join("")
+        : `<div class="empty">No job notes yet. Log “What did you do at your job today?” in Daily Input.</div>`}
+      </div>
+
+      <div class="callout info" style="margin-top:16px"><div class="ci">💡</div><div class="ctext">
+        <div class="ctitle">How to use this</div>
+        Product Strategy (30%) and Execution (25%) should get the most time. If a high-weight area shows <b>under</b>, that's where to focus tomorrow. Ask the AI Manager: “What job tasks should I do today?”
+      </div></div>`;
+  }
+
   /* ---------- Goals ---------- */
   function renderGoals() {
     const el = $("#view-goals");
@@ -1033,7 +1130,7 @@
 
   /* ----------------------------- Router ------------------------------ */
   function renderAll() {
-    renderDashboard(); renderCoach(); renderWeekly(); renderTrends(); renderIncome();
+    renderDashboard(); renderCoach(); renderWeekly(); renderTrends(); renderIncome(); renderJob();
     renderGoals(); renderAchievements(); renderHistory();
   }
   function go(view) {
@@ -1147,6 +1244,18 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       const botHrsMonth = round1(monthHours("bots"));
       return `\nINCOME GOAL: reach ${IG.currency} ${IG.target}/month by ${IG.deadline} (${dLeft} days), up from ${IG.current}/month now. Routes: (A, most reliable) a job upgrade to a ${IG.currency} 50000 role — powered by the user's Job-Upgrade hours (this month: ${upgHrsMonth}h); (B, parallel/uncertain) keep the 25k job + ~4%/mo on a $2500 funded account ≈ ${IG.currency} 27800 (not guaranteed, ramps ~3 months out); (upside) Bots to sell later, this month ${botHrsMonth}h. When relevant, tie daily decisions to this — Job-Upgrade effort is the dependable lever. You are NOT a financial advisor: never recommend trades or investment strategy; treat trading numbers as the user's own estimates.`;
     })() : "";
+    // ---- Job role: guide daily tasks + know the category balance ----
+    const J = CFG.jobRole;
+    const jobInfo = (J && J.enabled) ? (() => {
+      const ym = todayStr().slice(0,7);
+      const mrows = rows.filter(e => e.date.slice(0,7) === ym);
+      const catLine = J.categories.map(c => {
+        const h = round1(mrows.reduce((s,e)=>s+(+(e.job5?.[c.key])||0),0));
+        return `${c.label} (target ${c.weight}%, this month ${h}h; tasks: ${c.tasks.slice(0,4).join(", ")})`;
+      }).join(" | ");
+      const recentLogs = rows.filter(e=>(e.jobLog||"").trim()).slice(-5).map(e=>`${e.date}: ${e.jobLog}`).join("\n");
+      return `\nJOB ROLE — ${J.title}. The user wants to grow at work. Their responsibilities and target time-splits: ${catLine}. When they ask what to do at their job, suggest 2-3 concrete tasks, prioritising the HIGHEST-WEIGHT area that is currently UNDER-served this month (Product Strategy 30% and Execution 25% matter most). Recent job log:\n${recentLogs || "(none yet)"}`;
+    })() : "";
     const weekendInfo = isWeekend(todayStr())
       ? `\nTODAY IS A WEEKEND / RELAX DAY: targets for lower priorities are lighter (×${CFG.weekend.targetFactor}) and there is NO entertainment penalty. BUT the top ${CFG.weekend.keepTopPriorities} priorities (ACCA and Current Job) keep their FULL targets — those two still matter today. So: keep ACCA and Job on track, but be relaxed and encouraging about everything else; let them rest and recharge.`
       : "";
@@ -1155,7 +1264,7 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
     return `${examInfo ? examInfo + "\n\n" : ""}${penInfo ? penInfo + "\n\n" : ""}USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
-PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}${incomeInfo}
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}${incomeInfo}${jobInfo}
 
 ${scoreModel}
 ${todayScore}

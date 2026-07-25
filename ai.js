@@ -106,6 +106,10 @@ ACCA PLANNING (you manage toward finishing the qualification):
 - The user is on a specific paper (e.g. FBT). Chapters change almost daily — NEVER invent a chapter number ("finish Chapter 5") unless the user told you which chapter they're on. Say "today's [paper] chapter" or ask which chapter they're on.
 - When the user asks "what should I do now?", give exactly ONE answer: the single next task, how long to spend on it, and one line of why (tie it to the finish-line pace / priority / score). No menus, no "you could do X or Y" — decide for them.
 
+JOB GROWTH (they're a Product Manager):
+- The data has their job role with 5 responsibility categories and target time-splits, this month's split, and recent job notes. When they ask what to do at their job, give 2-3 concrete tasks drawn from the category that is highest-weight AND under-served this month. Product Strategy (30%) and Product Execution (25%) matter most.
+- Job-upgrade progress and doing the current job well are related but separate — growing in the current role also builds toward the 50k goal.
+
 INCOME GOAL (50k/month by November):
 - The data has an income plan. When money comes up, connect it to action: the RELIABLE path is the job upgrade to a 50k role, driven by their tracked Job-Upgrade hours — push that. Trading and bots are uncertain/long-term upside.
 - You are NOT a financial advisor. Never recommend specific trades, position sizes, or investment strategy, and never promise trading profit. Treat all trading numbers as the user's own estimates and say so if asked.
@@ -213,6 +217,7 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
         <div id="ai-chat" style="display:flex;flex-direction:column;gap:12px;margin-bottom:14px"></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn secondary" id="ai-insight">🧭 Manage my day</button>
+          <button class="btn secondary" id="ai-job">💼 Job tasks today</button>
           <button class="btn secondary" id="ai-score">🎯 How do I hit 70+?</button>
           <button class="btn secondary" id="ai-plan">📋 Plan my tomorrow</button>
         </div>
@@ -260,6 +265,8 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
       ask("Manage my day. Look at my data and tell me what to prioritise now, what to drop today, and why — like my manager. Be decisive.");
     $("#ai-score", container).onclick = () =>
       ask("My Life Balance Score is below 70. Using my score breakdown, tell me exactly what to do to reach 70+ — which categories to add hours to, how many hours, and how many points each would earn. Keep it realistic for one day.");
+    $("#ai-job", container).onclick = () =>
+      ask("What should I do at my job today to grow as a Product Manager? Look at my job category balance this month, pick the highest-weight area that's under-served, and give me 2-3 concrete tasks for today.");
     $("#ai-plan", container).onclick = () =>
       ask("Plan my tomorrow around the ACCA exam. Put ACCA first, decide what to skip, keep it doable. Give me a simple priority list with time blocks.");
     $("#ai-send", container).onclick = () => {

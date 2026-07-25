@@ -76,6 +76,26 @@ window.LOS_CONFIG = {
   },
 
   // ---- ACCA finish-line goal (drives the Future Projection) -----------
+  // ---- Your job role: Product Manager (for daily job guidance + appraisal) ----
+  // The AI suggests daily tasks from these categories, and you log what you did
+  // per category so you have a record for your performance appraisal.
+  jobRole: {
+    enabled: true,
+    title: "Product Manager — crypto app",
+    categories: [
+      { key: "strategy",   label: "Product Strategy",       weight: 30, icon: "🧭",
+        tasks: ["Competitor research", "Crypto market trends", "User feedback analysis", "New feature ideas", "Decide what NOT to build"] },
+      { key: "execution",  label: "Product Execution",      weight: 25, icon: "🛠️",
+        tasks: ["Write feature requirements", "Answer developer questions", "Discuss backend logic", "Feature testing", "Identify bugs", "Release planning"] },
+      { key: "ux",         label: "User Experience",        weight: 15, icon: "🎨",
+        tasks: ["Improve UI", "Review the user journey", "Improve onboarding", "Remove friction"] },
+      { key: "growth",     label: "Growth & Marketing",     weight: 15, icon: "📣",
+        tasks: ["ASO ideas", "Review marketing content", "Keywords", "Feature announcements", "Retention ideas"] },
+      { key: "innovation", label: "Innovation & Research",  weight: 15, icon: "🔬",
+        tasks: ["AI research", "Crypto research", "New products", "Automation ideas", "Spot market gaps"] },
+    ],
+  },
+
   // ---- Income goal: 50k PKR/month by November ------------------------
   // NOTE: this is a personal planning tool, not financial advice. Trading
   // figures are the user's own estimates; profits are never guaranteed.
