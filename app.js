@@ -1025,6 +1025,115 @@
       </div></div>`;
   }
 
+  /* ---------- Bots Sprint ---------- */
+  const IDEAS_KEY = "los_bot_ideas", CLAUDE_KEY = "los_claude_session";
+  const loadIdeas = () => { try { return JSON.parse(localStorage.getItem(IDEAS_KEY)) || []; } catch { return []; } };
+  const saveIdeas = (a) => localStorage.setItem(IDEAS_KEY, JSON.stringify(a));
+  let claudeTimer = null;
+
+  function renderSprint() {
+    const el = $("#view-sprint");
+    const S = CFG.botsSprint;
+    if (!S || !S.enabled) { el.innerHTML = `<div class="page-head"><div class="page-title">Bots Sprint</div></div><div class="empty">Enable it in config.js → botsSprint.</div>`; return; }
+    if (claudeTimer) { clearInterval(claudeTimer); claudeTimer = null; }
+
+    const dLeft = daysBetween(todayStr(), S.endDate);
+    const botsMonth = monthHours("bots");
+    // ideas: ensure we have ideasTarget slots
+    let ideas = loadIdeas();
+    while (ideas.length < S.ideasTarget) ideas.push({ name: "", status: "todo" });
+    const done = ideas.filter(i => i.status === "done").length;
+    const building = ideas.filter(i => i.status === "building").length;
+
+    const statusPill = (s) => s === "done" ? `<span class="pill ok">✓ done</span>`
+      : s === "building" ? `<span class="pill no">building</span>` : `<span class="pill" style="background:var(--bg);color:var(--faint)">to do</span>`;
+
+    // Claude window state
+    const sess = (() => { try { return JSON.parse(localStorage.getItem(CLAUDE_KEY)); } catch { return null; } })();
+    const winMs = (S.claudeWindowHours || 5) * 3600000;
+
+    el.innerHTML = `
+      <div class="page-head">
+        <div class="page-title">🚀 Bots Sprint</div>
+        <div class="page-sub">${dLeft>0?`${dLeft} days left · ends ${fmtDate(S.endDate)}`:`Sprint window ended (${fmtDate(S.endDate)})`}. Once ACCA &amp; Job are done each day, the rest goes to bots.</div>
+      </div>
+
+      <div class="grid cols-4">
+        ${statTile("Days left", dLeft>0?dLeft:0, "", "⏳", null)}
+        ${statTile("Ideas built", done, "/"+S.ideasTarget, "✅", null)}
+        ${statTile("In progress", building, "", "🔨", null)}
+        ${statTile("Bots this month", hm(botsMonth), "", "🤖", null)}
+      </div>
+
+      <div class="grid cols-2" style="margin-top:16px">
+        <div class="card">
+          <h3>💡 Your ${S.ideasTarget} tool ideas — tap status to cycle</h3>
+          <div id="ideas-list">
+            ${ideas.map((it,i) => `
+              <div class="prio-row">
+                <div class="prio-left" style="flex:1">
+                  <div class="prio-rank">${i+1}</div>
+                  <input data-idea="${i}" value="${(it.name||"").replace(/"/g,'&quot;')}" placeholder="name this tool idea…"
+                    style="flex:1;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:13.5px;width:100%">
+                </div>
+                <button class="pill-btn" data-status="${i}" style="border:none;background:none;cursor:pointer">${statusPill(it.status)}</button>
+              </div>`).join("")}
+          </div>
+        </div>
+
+        <div class="card" style="border-color:rgba(108,140,255,.4)">
+          <h3>⏱️ Claude 5-hour window planner</h3>
+          <div class="hint" style="margin-bottom:12px">Claude's usage resets ~every ${S.claudeWindowHours}h. Do heavy Claude work in blocks; when you hit the cap, switch to Claude-free bot tasks, then resume after the reset.</div>
+          <div id="claude-box"></div>
+        </div>
+      </div>
+
+      <div class="callout good" style="margin-top:16px"><div class="ci">🔥</div><div class="ctext">
+        <div class="ctitle">Sprint rules</div>
+        1) ACCA + Job first — always. 2) Extra bots time comes from <b>entertainment</b>, not ACCA. 3) Split Claude work into 2 blocks a day around the 5-hour reset. 4) Ship one idea at a time.
+        <div class="sub">Ask the AI Manager: “What should I build now?”</div>
+      </div></div>`;
+
+    // ---- ideas interactions ----
+    $$("[data-idea]", el).forEach(inp => inp.onchange = () => {
+      ideas[+inp.dataset.idea].name = inp.value.trim(); saveIdeas(ideas); renderAll();
+    });
+    $$("[data-status]", el).forEach(btn => btn.onclick = () => {
+      const i = +btn.dataset.status; const cyc = { todo:"building", building:"done", done:"todo" };
+      ideas[i].status = cyc[ideas[i].status] || "building"; saveIdeas(ideas); renderSprint();
+    });
+
+    // ---- Claude window box (live) ----
+    const box = $("#claude-box", el);
+    const paintClaude = () => {
+      const s = (() => { try { return JSON.parse(localStorage.getItem(CLAUDE_KEY)); } catch { return null; } })();
+      if (!s || !s.start) {
+        box.innerHTML = `<button class="btn" id="claude-start" style="width:100%">▶ Start a Claude session (${S.claudeWindowHours}h window)</button>`;
+        $("#claude-start", box).onclick = () => { localStorage.setItem(CLAUDE_KEY, JSON.stringify({ start: Date.now() })); paintClaude(); };
+        return;
+      }
+      const elapsed = Date.now() - s.start;
+      const left = Math.max(0, winMs - elapsed);
+      const mins = Math.floor(left/60000), hh = Math.floor(mins/60), mm = mins%60;
+      const resetAt = new Date(s.start + winMs).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      const pctUsed = Math.min(100, (elapsed/winMs)*100);
+      const advice = left<=0 ? "✅ Window reset — you can start a fresh Claude block now."
+        : pctUsed>75 ? "⚠️ Near the cap. If Claude stops, switch to Claude-free tasks (testing, specs, manual code) until reset."
+        : "🟢 Prime Claude time — do your heaviest bot work now.";
+      box.innerHTML = `
+        <div style="text-align:center">
+          <div style="font-size:34px;font-weight:800;font-variant-numeric:tabular-nums" class="score-big">${hh}h ${String(mm).padStart(2,'0')}m</div>
+          <div class="hint">until window resets · ${resetAt}</div>
+        </div>
+        <div class="bar ${pctUsed>75?'amber':''}" style="margin:12px 0"><i style="width:${pctUsed}%"></i></div>
+        <div class="callout ${left<=0?'good':pctUsed>75?'warn':'info'}" style="margin:0"><div class="ci">${left<=0?'✅':pctUsed>75?'⚠️':'🟢'}</div><div class="ctext">${advice}</div></div>
+        <button class="btn secondary" id="claude-reset" style="width:100%;margin-top:12px">↻ New window (I just started a fresh session)</button>`;
+      $("#claude-reset", box).onclick = () => { localStorage.setItem(CLAUDE_KEY, JSON.stringify({ start: Date.now() })); paintClaude(); };
+    };
+    paintClaude();
+    claudeTimer = setInterval(() => { if ($("#claude-box", el)) paintClaude(); else { clearInterval(claudeTimer); claudeTimer = null; } }, 30000);
+  }
+
   /* ---------- Goals ---------- */
   function renderGoals() {
     const el = $("#view-goals");
@@ -1130,7 +1239,7 @@
 
   /* ----------------------------- Router ------------------------------ */
   function renderAll() {
-    renderDashboard(); renderCoach(); renderWeekly(); renderTrends(); renderIncome(); renderJob();
+    renderDashboard(); renderCoach(); renderWeekly(); renderTrends(); renderIncome(); renderJob(); renderSprint();
     renderGoals(); renderAchievements(); renderHistory();
   }
   function go(view) {
@@ -1256,6 +1365,15 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       const recentLogs = rows.filter(e=>(e.jobLog||"").trim()).slice(-5).map(e=>`${e.date}: ${e.jobLog}`).join("\n");
       return `\nJOB ROLE — ${J.title}. The user wants to grow at work. Their responsibilities and target time-splits: ${catLine}. When they ask what to do at their job, suggest 2-3 concrete tasks, prioritising the HIGHEST-WEIGHT area that is currently UNDER-served this month (Product Strategy 30% and Execution 25% matter most). Recent job log:\n${recentLogs || "(none yet)"}`;
     })() : "";
+    // ---- Bots sprint mode ----
+    const SP = CFG.botsSprint;
+    const sprintInfo = (SP && SP.enabled && daysBetween(todayStr(), SP.endDate) >= 0) ? (() => {
+      const dl = daysBetween(todayStr(), SP.endDate);
+      const ideas = (() => { try { return JSON.parse(localStorage.getItem("los_bot_ideas")) || []; } catch { return []; } })();
+      const doneN = ideas.filter(i => i.status === "done").length;
+      const named = ideas.filter(i => (i.name||"").trim()).map((i,n)=>`${i.name} [${i.status}]`).join(", ");
+      return `\nBOTS SPRINT ACTIVE (until ${SP.endDate}, ${dl} days left): the user is doing a focused push to build ${SP.ideasTarget} tool ideas (${doneN} done). ${named?`Ideas: ${named}.`:""} RULES: ACCA and Job still come first every day — never sacrifice them. But once those are done, direct ALL remaining time into bots, and motivate the user to cut social media/entertainment (they average ~6h/day) to free that time. Extra bots time comes from entertainment, NOT ACCA. Also: Claude has a ~${SP.claudeWindowHours}-hour usage window — advise working Claude-heavy bot tasks in 2 blocks/day around the reset, and doing Claude-free tasks (testing, specs, manual code) when the cap is hit. Encourage shipping one idea at a time.`;
+    })() : "";
     const weekendInfo = isWeekend(todayStr())
       ? `\nTODAY IS A WEEKEND / RELAX DAY: targets for lower priorities are lighter (×${CFG.weekend.targetFactor}) and there is NO entertainment penalty. BUT the top ${CFG.weekend.keepTopPriorities} priorities (ACCA and Current Job) keep their FULL targets — those two still matter today. So: keep ACCA and Job on track, but be relaxed and encouraging about everything else; let them rest and recharge.`
       : "";
@@ -1264,7 +1382,7 @@ Biggest point gaps today: ${gaps || "none, near perfect"}. To hit 70 the user ne
       ? `\nIMPROVEMENT RULE: every productive target grows +${CFG.improvement.rate*100}% per ${growthPeriodWord()} (compounding, since their first logged day), whether or not it was met. Today's targets are ${growthMultiplier(todayStr()).toFixed(2)}× the base. Entertainment never grows. Celebrate that the bar rises a little each ${growthPeriodWord()}; keep suggestions realistic for the CURRENT (grown) target.`
       : "";
     return `${examInfo ? examInfo + "\n\n" : ""}${penInfo ? penInfo + "\n\n" : ""}USER'S TARGETS FOR TODAY (already grown to today's level): ACCA ${tt("study")}h (top priority), CurrentJob ${tt("job")}h, JobUpgrade ${tt("jobUpgrade")}h, LinkedIn ${tt("linkedin")}h, Bots ${tt("bots")}h, Exercise ${tt("exercise")}h, Reading ${tt("reading")}h, Family ${tt("family")}h, Entertainment under ${T.entertainment}h, Sleep ${T.sleepMin}-${T.sleepMax}h.
-PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}${incomeInfo}${jobInfo}
+PRIORITY ORDER (1=highest): ${CFG.priorities.join(" > ")}.${gInfo}${weekendInfo}${incomeInfo}${jobInfo}${sprintInfo}
 
 ${scoreModel}
 ${todayScore}
@@ -1290,7 +1408,8 @@ TODAY IS: ${todayStr()} (${dayName(todayStr())})${today ? "" : " — NOT logged 
 
   /* ----------------------------- Boot -------------------------------- */
   const askNow = () => { go("coach"); setTimeout(() => document.querySelector("#ai-decide")?.click(), 120); };
-  window.LOS = { go, aiContext: buildAIContext, philosophy: PHILOSOPHY, refreshCoach: renderCoach, askNow };
+  const sprintActive = () => !!(CFG.botsSprint?.enabled && daysBetween(todayStr(), CFG.botsSprint.endDate) >= 0);
+  window.LOS = { go, aiContext: buildAIContext, philosophy: PHILOSOPHY, refreshCoach: renderCoach, askNow, sprintActive };
   window.dispatchEvent(new Event("los-ready"));
   renderAll();
   go("dashboard");

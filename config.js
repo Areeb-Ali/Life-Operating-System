@@ -76,6 +76,17 @@ window.LOS_CONFIG = {
   },
 
   // ---- ACCA finish-line goal (drives the Future Projection) -----------
+  // ---- Bots Sprint: a focused push to build your tool ideas -----------
+  // While active, once ACCA + top priorities are done, the manager pushes all
+  // remaining time into bots and motivates cutting social media. It also helps
+  // you work AROUND Claude's ~5-hour usage window so you never hit the wall.
+  botsSprint: {
+    enabled: true,
+    endDate: "2026-08-18",     // sprint runs until this date
+    ideasTarget: 9,            // number of tool ideas to build
+    claudeWindowHours: 5,      // Claude usage resets ~every 5 hours (rolling)
+  },
+
   // ---- Your job role: Product Manager (for daily job guidance + appraisal) ----
   // The AI suggests daily tasks from these categories, and you log what you did
   // per category so you have a record for your performance appraisal.

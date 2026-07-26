@@ -218,6 +218,7 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
           <button class="btn secondary" id="ai-insight">🧭 Manage my day</button>
           <button class="btn secondary" id="ai-job">💼 Job tasks today</button>
+          ${window.LOS?.sprintActive?.() ? `<button class="btn secondary" id="ai-build">🚀 What should I build now?</button>` : ""}
           <button class="btn secondary" id="ai-score">🎯 How do I hit 70+?</button>
           <button class="btn secondary" id="ai-plan">📋 Plan my tomorrow</button>
         </div>
@@ -267,6 +268,8 @@ Below is the user's real tracked data. Use it as the single source of truth.`;
       ask("My Life Balance Score is below 70. Using my score breakdown, tell me exactly what to do to reach 70+ — which categories to add hours to, how many hours, and how many points each would earn. Keep it realistic for one day.");
     $("#ai-job", container).onclick = () =>
       ask("What should I do at my job today to grow as a Product Manager? Look at my job category balance this month, pick the highest-weight area that's under-served, and give me 2-3 concrete tasks for today.");
+    $("#ai-build", container)?.addEventListener("click", () =>
+      ask("It's my bots sprint. Assuming ACCA and Job are handled today, what should I build/do on my bots right now? Pick one idea to push, give me a focused next step, and remind me how to work around Claude's 5-hour limit."));
     $("#ai-plan", container).onclick = () =>
       ask("Plan my tomorrow around the ACCA exam. Put ACCA first, decide what to skip, keep it doable. Give me a simple priority list with time blocks.");
     $("#ai-send", container).onclick = () => {
